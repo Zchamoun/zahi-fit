@@ -7,7 +7,7 @@
   "display": "standalone",
   "background_color": "#0b1020",
   "theme_color": "#0b1020",
-  "description": "Medium-to-advanced PT app with in-workout coaching, progression, substitutions, conditioning, mobility and flexibility.",
+  "description": "Personalized medium-to-advanced PT app with embedded AI coaching, age/sex profile context, rest audio, voice coaching and in-app visual exercise demonstrations.",
   "icons": [
     {
       "src": "icon-192.png",

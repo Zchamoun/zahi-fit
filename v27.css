@@ -1,0 +1,26 @@
+
+/* Zahi Fit v2.7 — Personal PT Experience */
+.v27-overlay{position:fixed;inset:0;z-index:120;background:rgba(3,8,18,.94);display:flex;align-items:center;justify-content:center;padding:18px}
+.v27-onboard{width:min(680px,100%);max-height:92vh;overflow:auto;background:#111827;border:1px solid #334155;border-radius:22px;padding:20px;box-shadow:0 24px 80px #0008}
+.v27-onboard h2{margin:0 0 8px;font-size:26px}.v27-kicker{font-size:12px;font-weight:800;letter-spacing:.08em;color:#86efac;text-transform:uppercase}
+.v27-step{margin-top:20px}.v27-step label{display:block;color:#cbd5e1;font-size:13px;margin-bottom:9px}
+.v27-choices{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}.v27-choices.age{grid-template-columns:repeat(3,1fr)}
+.v27-choice{padding:13px 10px;border-radius:12px;border:1px solid #334155;background:#0b1220;color:#fff;font-weight:700}
+.v27-choice.active{background:#1d4ed8;border-color:#60a5fa}
+.v27-profile-summary{margin-top:14px;padding:12px;border:1px solid #166534;background:#0b1620;border-radius:14px;color:#bbf7d0;line-height:1.5}
+.v27-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:18px}
+.v27-demo{margin-top:14px;padding:14px;border:1px solid #334155;border-radius:16px;background:#0b1220}
+.v27-demo-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.v27-demo-title strong{color:#bae6fd}.v27-demo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.v27-demo-step{min-height:118px;border:1px solid #263248;border-radius:14px;background:#111827;padding:10px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.v27-demo-num{width:28px;height:28px;border-radius:999px;background:#1d4ed8;display:grid;place-items:center;font-weight:900;margin-bottom:8px}
+.v27-demo-icon{font-size:32px;line-height:1;margin-bottom:8px;color:#7dd3fc}.v27-demo-text{font-size:12px;line-height:1.35;color:#cbd5e1}
+.v27-demo-arrow{display:none}
+.v27-inline-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.v27-setting{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid #263248}
+.v27-setting select{background:#0a1220;border:1px solid #334155;color:white;border-radius:10px;padding:10px}
+.v27-video-sheet .sheet-card{max-height:85vh;overflow:auto}
+.v27-video-placeholder{border:1px solid #334155;border-radius:16px;background:linear-gradient(135deg,#0b1220,#101b2e);padding:16px;margin-top:10px}
+.v27-coach-badge{display:inline-block;background:#102a1d;color:#bbf7d0;border:1px solid #166534;border-radius:999px;padding:6px 9px;font-size:11px;font-weight:800}
+.v27-note{font-size:12px;color:#94a3b8;line-height:1.5;margin-top:8px}
+@media(max-width:520px){.v27-choices.age{grid-template-columns:repeat(2,1fr)}.v27-demo-grid{grid-template-columns:1fr}.v27-demo-step{min-height:94px}.v27-inline-controls{grid-template-columns:1fr}}
