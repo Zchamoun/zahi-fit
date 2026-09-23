@@ -1,219 +1,63 @@
-/* Zahi Fit v2.7.1 — Guided PT Demo upgrade */
 "use strict";
-
+/* Zahi Fit v2.8.0 — Visual PT + paced voice coach */
 (() => {
-  const VERSION = "v2.7.1";
+  const VERSION="v2.8.0";
+  const VOICE_RATE_KEY="zahiFitVoiceRateV28";
+  let voiceRate=Number(localStorage.getItem(VOICE_RATE_KEY)||"0.78");
+  let speaking=false, stepIndex=0, activeDemo=null, activeEx=null;
 
-  const specific = {
-    "world's greatest stretch": {
-      feel: "Hip flexors, groin and upper-back rotation. The movement should feel like a controlled stretch, never a sharp pinch.",
-      steps: [
-        ["Set the lunge", "Step your right foot forward into a long lunge. Keep the entire right foot planted. Extend the left leg behind you and place both hands on the floor inside the right foot."],
-        ["Lower with control", "Keeping your right foot flat, bring your right elbow toward the inside of your right foot. Do not force it to the floor. Keep your hips controlled and breathe out slowly."],
-        ["Rotate upward", "Keep your left hand planted. Rotate your chest toward your right knee and reach your right arm toward the ceiling. Follow your hand with your eyes instead of twisting only through the shoulder."],
-        ["Pause and breathe", "Hold the top position for about one to two seconds. Take a controlled breath while keeping the front knee tracking in line with the toes."],
-        ["Return and repeat", "Bring your right hand back to the floor under control. Complete five smooth repetitions, then change sides. Move through the range you can control without pain."]
-      ],
-      mistakes: [
-        "Front heel lifting — shorten the lunge until the whole foot stays planted.",
-        "Front knee collapsing inward — keep the knee tracking toward the middle toes.",
-        "Forcing the elbow to the floor — use only a comfortable, controlled range.",
-        "Rotating only the arm — turn the chest and upper back together.",
-        "Rushing — make each repetition deliberate and breathe throughout."
-      ]
+  const demos={
+    "world's greatest stretch":{
+      feel:"A controlled stretch through the hip flexors/groin plus rotation through the upper back. No sharp pinch.",
+      steps:[
+        {t:"Long lunge setup",d:"Step the right foot forward. Keep the whole right foot flat. Extend the left leg behind you with the heel lifted. Put both hands on the floor inside the right foot.",pose:"lunge",call:["Front foot flat","Back leg long","Hands inside foot"]},
+        {t:"Elbow toward instep",d:"Keep the front foot planted and knee tracking over the toes. Lower the right elbow toward the inside of the right foot only as far as you can control. Exhale slowly.",pose:"elbow",call:["Knee tracks toes","Do not force range","Slow exhale"]},
+        {t:"Rotate through upper back",d:"Keep the left hand planted. Turn your chest toward the right knee and reach the right hand toward the ceiling. Let your eyes follow the hand.",pose:"rotate",call:["Left hand planted","Turn chest, not just arm","Eyes follow hand"]},
+        {t:"Own the top position",d:"Pause for one to two seconds. Keep the front heel down, hips controlled and chest open. Take one smooth breath.",pose:"top",call:["Heel stays down","Chest open","Pause 1–2 sec"]},
+        {t:"Return and repeat",d:"Bring the right hand back to the floor under control. Complete five smooth repetitions, then switch sides. Use only a pain-free range.",pose:"return",call:["Return slowly","5 reps each side","Pain-free range"]}
+      ],mist:["Front heel lifting — shorten the lunge.","Knee collapsing inward — track it toward the middle toes.","Forcing the elbow down — range follows control.","Moving only the arm — rotate the chest and upper back together."]
     },
-    "deadlift": {
-      feel: "Hamstrings, glutes, upper back and trunk tension. You should not feel sharp pain in the lower back.",
-      steps: [
-        ["Set your feet", "Stand with the bar over your mid-foot, roughly hip-width apart. Keep the bar close enough that your shins are only a few centimetres away."],
-        ["Grip and brace", "Hinge down and grip just outside your legs. Take a breath into your abdomen, brace your trunk, pull your shoulders down and back slightly, and remove the slack from the bar."],
-        ["Push the floor away", "Drive through the whole foot. Let your knees and hips extend together while keeping the bar close to your legs. Keep your spine controlled rather than jerking the bar from the floor."],
-        ["Stand tall", "Finish with hips and knees straight and ribs stacked over the pelvis. Do not lean backward or overextend your lower back."],
-        ["Lower under control", "Push your hips backward first, keep the bar close to your thighs, then bend the knees once the bar passes them. Reset your brace before the next repetition."]
-      ],
-      mistakes: [
-        "Bar drifting forward — keep it close to the legs.",
-        "Jerking from the floor — build tension before you pull.",
-        "Hips shooting up first — push the floor away and let hips and shoulders rise together.",
-        "Overextending at lockout — finish tall, not leaning backward."
-      ]
+    "deadlift":{
+      feel:"Hamstrings, glutes, upper back and trunk tension. The bar should stay close. No sharp lower-back pain.",
+      steps:[
+        {t:"Set feet and bar",d:"Stand hip-width with the bar over mid-foot. Keep shins a few centimetres from the bar and distribute pressure through heel, big toe and little toe.",pose:"dlset",call:["Bar over mid-foot","Feet hip-width","Whole-foot pressure"]},
+        {t:"Grip and brace",d:"Hinge down and grip just outside your legs. Breathe into your abdomen, brace firmly, set the shoulders and pull the slack out of the bar before it leaves the floor.",pose:"dlbrace",call:["Brace 360°","Arms long","Remove bar slack"]},
+        {t:"Push the floor away",d:"Drive through the whole foot. Let hips and shoulders rise together. Keep the bar brushing close to the legs rather than drifting forward.",pose:"dlpull",call:["Hips + shoulders together","Bar stays close","No jerking"]},
+        {t:"Stand tall",d:"Finish with knees and hips straight, glutes engaged and ribs stacked over pelvis. Do not lean backward at lockout.",pose:"dllock",call:["Stand tall","Ribs stacked","Do not lean back"]},
+        {t:"Lower and reset",d:"Push the hips backward first while keeping the bar close to the thighs. Bend the knees after the bar passes them. Reset your brace before the next rep.",pose:"dllower",call:["Hips back first","Bar close","Reset each rep"]}
+      ],mist:["Bar drifting forward — keep it close.","Jerking from floor — build tension first.","Hips shooting up — hips and shoulders rise together.","Leaning back at lockout — finish stacked and tall."]
     }
   };
 
-  function key(s){ return String(s || "").trim().toLowerCase(); }
-  function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
-  function currentExercise(){
-    try {
-      if (typeof window.currentPTContextV25 === "function") {
-        const c = window.currentPTContextV25();
-        if (c?.currentExercise) return c.currentExercise;
-      }
-    } catch {}
-    const title = document.querySelector("main h1, main h2, .exercise-title, h1, h2");
-    return { name: title?.textContent?.trim() || "Current exercise" };
+  function injectV28Styles(){
+    if(document.getElementById("zf28-style"))return;
+    const s=document.createElement("style");s.id="zf28-style";s.textContent=`/* Zahi Fit v2.8.0 visual PT */
+#zf28-demo{position:fixed;inset:0;z-index:1000000;color:#eef6ff;font-family:inherit}.zf28-back{position:absolute;inset:0;background:rgba(1,6,16,.88)}.zf28-sheet{position:absolute;inset:2vh 2vw;max-width:1100px;margin:auto;background:#0e182a;border:1px solid #31435f;border-radius:24px;padding:20px;overflow:auto;box-sizing:border-box}.zf28-sheet header{display:flex;justify-content:space-between;align-items:start}.zf28-sheet header small,.zf28-stepno{color:#42bdf2;font-weight:800;letter-spacing:.08em}.zf28-sheet h1{margin:4px 0 18px}.zf28-close{width:44px;height:44px;border-radius:50%;border:1px solid #40516b;background:#17243a;color:#fff;font-size:28px}.zf28-main{display:grid;grid-template-columns:minmax(320px,1.3fr) minmax(260px,.7fr);gap:20px;align-items:center}.zf28-picture{background:#091321;border-radius:20px;overflow:hidden;border:1px solid #29405d}.zf28-svg{display:block;width:100%;height:auto}.zf28-copy h2{font-size:28px;margin:6px 0 12px}.zf28-copy p{font-size:17px;line-height:1.6;color:#d1dcec}.zf28-callouts{display:grid;gap:8px}.zf28-callouts span{padding:9px 11px;border-radius:10px;background:#0b251b;border:1px solid #17633f;color:#baf4cf}.zf28-thumbs{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin:18px 0}.zf28-thumb{background:#111d30;border:2px solid #293a53;border-radius:14px;color:#dce8f6;padding:5px;text-align:left}.zf28-thumb.active{border-color:#39b9ee;box-shadow:0 0 0 2px #39b9ee33}.zf28-thumb .zf28-svg{border-radius:9px}.zf28-thumb b{display:block;padding:7px;font-size:11px}.zf28-voice{display:grid;grid-template-columns:1fr auto auto auto;gap:9px;align-items:center;padding:14px;border:1px solid #2e4260;border-radius:16px;background:#0a1424}.zf28-voice small{display:block;color:#9fb0c6;margin-top:3px}.zf28-voice select,.zf28-voice button,.zf28-sheet footer button{padding:12px 14px;border-radius:11px;border:1px solid #36506e;background:#17263c;color:white;font-weight:700}.zf28-play{background:#39b9ee!important;color:#07111c!important}.zf28-feel{margin:14px 0;padding:14px;border-radius:14px;background:#0b2119;border:1px solid #1f6848}.zf28-feel p{margin:6px 0 0;line-height:1.5}.zf28-sheet details{padding:14px;border:1px solid #2b3b53;border-radius:14px}.zf28-sheet details li{margin:8px 0;line-height:1.45}.zf28-sheet footer{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}.zf28-next{background:#25cf69!important;color:#07120b!important}.zf28-prev:disabled{opacity:.35}
+@media(max-width:700px){.zf28-sheet{inset:0;border-radius:0;padding:14px}.zf28-main{grid-template-columns:1fr}.zf28-copy h2{font-size:23px}.zf28-copy p{font-size:15px}.zf28-thumbs{grid-template-columns:repeat(2,1fr)}.zf28-voice{grid-template-columns:1fr 1fr}.zf28-voice>div{grid-column:1/-1}.zf28-thumb b{font-size:12px}}
+`;document.head.appendChild(s);
   }
 
-  function findSpecific(name){
-    const k = key(name);
-    for (const [n,d] of Object.entries(specific)) if (k.includes(n)) return d;
-    return null;
+  const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const key=s=>String(s||"").trim().toLowerCase();
+  function currentExercise(){try{const c=window.currentPTContextV25?.();if(c?.currentExercise)return c.currentExercise}catch{};return {name:document.querySelector("#activeExerciseCard h2,#activeExerciseCard h3")?.textContent?.trim()||"Current exercise",block:""};}
+  function demoFor(ex){const k=key(ex.name);for(const [n,d] of Object.entries(demos))if(k.includes(n))return d;const mobility=/mobility|flexibility/i.test(ex.block||"");return {feel:mobility?"A controlled stretch or mobility challenge in the intended area without sharp pain or pinching.":"The target muscles working with stable joints and repeatable technique.",steps:[{t:"Set the position",d:`Set up for ${ex.name} with stable contact points and comfortable joint alignment.`,pose:"stand",call:["Stable base","Controlled posture"]},{t:"Brace and prepare",d:"Create gentle trunk tension and set the working joints before moving.",pose:"brace",call:["Brace","Stay aligned"]},{t:"Move with control",d:"Perform the working phase slowly through the range you can own. Avoid momentum.",pose:"move",call:["Smooth tempo","No momentum"]},{t:"Finish the position",d:"Reach the intended end position without forcing extra range or losing alignment.",pose:"finish",call:["Own end range","Keep alignment"]},{t:"Return and repeat",d:`Return smoothly and repeat for the prescribed target. Stop when technique meaningfully deteriorates.`,pose:"return",call:["Controlled return","Quality first"]}],mist:["Rushing the movement.","Using momentum.","Forcing range.","Continuing after technique breaks down."]};}
+
+  function poseSvg(pose,labels=[]){
+    const configs={
+      lunge:[150,70,145,115,115,150,72,180,170,180,145,120,190,145],elbow:[145,82,140,120,105,155,70,180,165,180,130,145,95,168],rotate:[145,82,140,120,105,155,70,180,165,180,140,118,190,65],top:[145,82,140,120,105,155,70,180,165,180,140,118,190,55],return:[145,82,140,120,105,155,70,180,165,180,130,145,95,168],
+      dlset:[150,70,145,112,120,150,105,188,178,188,125,125,175,125],dlbrace:[150,82,145,118,118,150,108,188,178,188,122,128,176,128],dlpull:[150,62,150,105,135,145,120,188,180,188,135,115,175,115],dllock:[150,45,150,92,138,135,130,188,170,188,135,100,175,100],dllower:[150,68,145,110,125,148,110,188,178,188,125,120,175,120],
+      stand:[150,48,150,95,135,140,130,188,170,188,135,100,175,100],brace:[150,48,150,95,135,140,130,188,170,188,125,105,185,105],move:[150,65,145,110,120,145,95,180,180,180,120,115,180,115],finish:[150,48,150,95,135,140,130,188,170,188,110,85,190,85]
+    };const a=configs[pose]||configs.stand;
+    return `<svg viewBox="0 0 300 220" class="zf28-svg" role="img" aria-label="Exercise position illustration"><defs><linearGradient id="bg" x1="0" x2="1"><stop stop-color="#172337"/><stop offset="1" stop-color="#0b1322"/></linearGradient></defs><rect width="300" height="220" rx="18" fill="url(#bg)"/><path d="M35 190H265" stroke="#4b5d75" stroke-width="3"/><circle cx="${a[0]}" cy="${a[1]}" r="15" fill="#d7b08a"/><path d="M${a[0]} ${a[1]+16} L${a[2]} ${a[3]} L${a[4]} ${a[5]}" fill="none" stroke="#43bdf0" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/><path d="M${a[4]} ${a[5]} L${a[6]} ${a[7]} M${a[4]} ${a[5]} L${a[8]} ${a[9]}" fill="none" stroke="#6fe3a1" stroke-width="14" stroke-linecap="round"/><path d="M${a[2]} ${a[3]} L${a[10]} ${a[11]} M${a[2]} ${a[3]} L${a[12]} ${a[13]}" fill="none" stroke="#43bdf0" stroke-width="11" stroke-linecap="round"/><circle cx="${a[6]}" cy="${a[7]}" r="7" fill="#d7b08a"/><circle cx="${a[8]}" cy="${a[9]}" r="7" fill="#d7b08a"/>${labels.slice(0,3).map((x,i)=>`<g transform="translate(${i===0?10:i===1?165:80},${i===0?12:i===1?12:190})"><rect width="125" height="24" rx="7" fill="#08101e" stroke="#2e8ec2"/><text x="62" y="16" text-anchor="middle" fill="#d9f4ff" font-size="9">${esc(x)}</text></g>`).join("")}</svg>`;
   }
 
-  function genericDemo(ex){
-    const block = key(ex?.block);
-    const target = ex?.target ? String(ex.target) : "";
-    if (block.includes("mobility") || block.includes("flexibility")) {
-      return {
-        feel: "A controlled stretch or mobility challenge in the intended area, without sharp pain, numbness or pinching.",
-        steps: [
-          ["Set the start position", `Get into a stable starting position for ${ex.name}. Use support if needed so you can control the movement rather than chase range.`],
-          ["Create tension", "Brace gently and keep the joints you are not trying to move stable. Start from a range that feels comfortable."],
-          ["Move slowly", "Move into the intended range under control. Do not bounce or force the end position."],
-          ["Breathe at end range", "Pause briefly and use a slow exhale to relax into the available range while maintaining alignment."],
-          ["Return and repeat", `Return smoothly and repeat ${target || "for the prescribed reps or time"}. Stop short of sharp pain or pinching.`]
-        ],
-        mistakes: ["Rushing or bouncing.", "Forcing range instead of controlling it.", "Losing joint alignment to reach farther.", "Holding your breath."]
-      };
-    }
-    if (block.includes("conditioning")) {
-      return {
-        feel: "Elevated breathing and muscular effort that matches the prescribed intensity while movement remains controlled.",
-        steps: [
-          ["Set up", `Adjust the equipment and posture for ${ex.name}. Begin below target intensity so you can establish rhythm safely.`],
-          ["Build gradually", "Increase pace or resistance progressively rather than sprinting immediately."],
-          ["Hold efficient posture", "Keep your trunk controlled, shoulders relaxed and movement smooth. Avoid wasting energy through excessive upper-body tension."],
-          ["Match the target", `Work at the prescribed target ${target ? `(${target})` : ""}. Use the exercise-specific level, resistance, cadence or time shown by Zahi Fit.`],
-          ["Finish under control", "Ease down progressively rather than stopping abruptly. Record the exercise-specific result so the next session can be adjusted."]
-        ],
-        mistakes: ["Starting too hard.", "Letting posture collapse as fatigue rises.", "Using resistance that destroys movement quality.", "Ignoring unusual symptoms."]
-      };
-    }
-    return {
-      feel: "The target muscles working with stable joints and repeatable technique. Normal muscular effort is expected; sharp pain is not.",
-      steps: [
-        ["Set your position", `Set up for ${ex.name} with stable contact points, neutral joint alignment and the load under control.`],
-        ["Brace before moving", "Create trunk tension, set the working joints and take the slack out of the movement before the repetition starts."],
-        ["Perform the working phase", "Move through the prescribed path smoothly. Keep the load controlled and avoid using momentum to bypass the target muscles."],
-        ["Finish the repetition", "Reach the intended end position without forcing extra range or losing alignment."],
-        ["Reset and repeat", `Return under control, reset your brace and repeat ${target || "for the prescribed repetitions"}. Stop the set when technique meaningfully deteriorates.`]
-      ],
-      mistakes: ["Using momentum.", "Losing alignment as effort rises.", "Rushing the lowering phase.", "Continuing after technique clearly breaks down."]
-    };
-  }
+  function chooseVoice(){const vs=speechSynthesis.getVoices();return vs.find(v=>/Google.*English|Samsung.*English|Microsoft.*English/i.test(v.name))||vs.find(v=>/^en/i.test(v.lang))||vs[0];}
+  function speakStep(i){if(!activeDemo||!("speechSynthesis" in window))return;speechSynthesis.cancel();stepIndex=i;renderStep();const s=activeDemo.steps[i];const u=new SpeechSynthesisUtterance(`Step ${i+1}. ${s.t}. ${s.d}`);u.rate=voiceRate;u.pitch=.96;u.volume=.95;const v=chooseVoice();if(v)u.voice=v;speaking=true;u.onend=()=>{speaking=false;updateVoiceButtons()};speechSynthesis.speak(u);updateVoiceButtons();}
+  function updateVoiceButtons(){const p=document.querySelector(".zf28-play");if(p)p.textContent=speaking?"❚❚ Pause":"▶ Play step";}
+  function renderStep(){const s=activeDemo.steps[stepIndex];const main=document.querySelector(".zf28-main");if(!main)return;main.innerHTML=`<div class="zf28-picture">${poseSvg(s.pose,s.call)}</div><div class="zf28-copy"><div class="zf28-stepno">STEP ${stepIndex+1} OF ${activeDemo.steps.length}</div><h2>${esc(s.t)}</h2><p>${esc(s.d)}</p><div class="zf28-callouts">${s.call.map(x=>`<span>✓ ${esc(x)}</span>`).join("")}</div></div>`;document.querySelectorAll(".zf28-thumb").forEach((b,i)=>b.classList.toggle("active",i===stepIndex));document.querySelector(".zf28-prev").disabled=stepIndex===0;document.querySelector(".zf28-next").textContent=stepIndex===activeDemo.steps.length-1?"Finish demo":"Next step →";}
+  function showDemo(ex){activeEx=ex;activeDemo=demoFor(ex);stepIndex=0;document.getElementById("zf28-demo")?.remove();const o=document.createElement("div");o.id="zf28-demo";o.innerHTML=`<div class="zf28-back"></div><section class="zf28-sheet"><header><div><small>VISUAL PT COACH</small><h1>${esc(ex.name)}</h1></div><button class="zf28-close">×</button></header><div class="zf28-main"></div><div class="zf28-thumbs">${activeDemo.steps.map((s,i)=>`<button class="zf28-thumb" data-i="${i}">${poseSvg(s.pose,[])}<b>${i+1}. ${esc(s.t)}</b></button>`).join("")}</div><div class="zf28-voice"><div><b>🔊 Voice coach</b><small>Slower, paced step-by-step guidance</small></div><select class="zf28-speed"><option value="0.68">Very slow</option><option value="0.78">Smooth</option><option value="0.88">Normal</option></select><button class="zf28-play">▶ Play step</button><button class="zf28-replay">↻ Replay</button></div><div class="zf28-feel"><b>What you should feel</b><p>${esc(activeDemo.feel)}</p></div><details><summary>Common mistakes & corrections</summary><ul>${activeDemo.mist.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></details><footer><button class="zf28-prev">← Previous</button><button class="zf28-next">Next step →</button></footer></section>`;document.body.append(o);o.querySelector(".zf28-speed").value=String(voiceRate);const close=()=>{speechSynthesis?.cancel();o.remove()};o.querySelector(".zf28-close").onclick=close;o.querySelector(".zf28-back").onclick=close;o.querySelectorAll(".zf28-thumb").forEach(b=>b.onclick=()=>{stepIndex=Number(b.dataset.i);renderStep()});o.querySelector(".zf28-prev").onclick=()=>{if(stepIndex>0){stepIndex--;renderStep();speakStep(stepIndex)}};o.querySelector(".zf28-next").onclick=()=>{if(stepIndex<activeDemo.steps.length-1){stepIndex++;renderStep();speakStep(stepIndex)}else close()};o.querySelector(".zf28-speed").onchange=e=>{voiceRate=Number(e.target.value);localStorage.setItem(VOICE_RATE_KEY,String(voiceRate))};o.querySelector(".zf28-play").onclick=()=>{if(speaking){speechSynthesis.pause();speaking=false;updateVoiceButtons()}else{if(speechSynthesis.paused){speechSynthesis.resume();speaking=true;updateVoiceButtons()}else speakStep(stepIndex)}};o.querySelector(".zf28-replay").onclick=()=>speakStep(stepIndex);renderStep();}
 
-  function demoFor(ex){ return findSpecific(ex?.name) || genericDemo(ex || {}); }
-
-  function speakDemo(ex, demo){
-    if (!("speechSynthesis" in window)) {
-      alert("Voice coaching is not supported by this browser.");
-      return;
-    }
-    speechSynthesis.cancel();
-    const intro = `Guided PT demo for ${ex.name}.`;
-    const body = demo.steps.map((s,i)=>`Step ${i+1}. ${s[0]}. ${s[1]}`).join(" ");
-    const end = `What you should feel. ${demo.feel}`;
-    const u = new SpeechSynthesisUtterance(`${intro} ${body} ${end}`);
-    u.rate = 0.88;
-    u.pitch = 1;
-    speechSynthesis.speak(u);
-  }
-
-  function showDemo(ex){
-    const demo = demoFor(ex);
-    document.getElementById("zf-guided-demo")?.remove();
-    const overlay = document.createElement("div");
-    overlay.id = "zf-guided-demo";
-    overlay.innerHTML = `
-      <div class="zf271-backdrop"></div>
-      <section class="zf271-sheet" role="dialog" aria-modal="true" aria-label="Guided PT Demo">
-        <div class="zf271-handle"></div>
-        <div class="zf271-head">
-          <div><div class="zf271-kicker">GUIDED PT DEMO</div><h2>${esc(ex.name)}</h2></div>
-          <button class="zf271-close" aria-label="Close">×</button>
-        </div>
-        <p class="zf271-intro">Follow each position in order. The voice coach reads the same instructions so you can follow without looking at the screen.</p>
-        <div class="zf271-actions">
-          <button class="zf271-speak">▶ Start guided voice</button>
-          <button class="zf271-stop">■ Stop voice</button>
-        </div>
-        <div class="zf271-steps">
-          ${demo.steps.map((s,i)=>`
-            <article class="zf271-step">
-              <div class="zf271-figure" aria-hidden="true">
-                <span class="zf271-num">${i+1}</span>
-                <div class="zf271-person"><i class="head"></i><i class="body"></i><i class="arm a"></i><i class="arm b"></i><i class="leg a"></i><i class="leg b"></i></div>
-              </div>
-              <div><h3>Step ${i+1} — ${esc(s[0])}</h3><p>${esc(s[1])}</p></div>
-            </article>`).join("")}
-        </div>
-        <div class="zf271-feel"><strong>What you should feel</strong><p>${esc(demo.feel)}</p></div>
-        <div class="zf271-mistakes"><strong>Common mistakes & corrections</strong><ul>${demo.mistakes.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>
-        <button class="zf271-done">Got it — return to exercise</button>
-      </section>`;
-    document.body.appendChild(overlay);
-    const close = () => { try{speechSynthesis.cancel()}catch{}; overlay.remove(); };
-    overlay.querySelector(".zf271-close").onclick = close;
-    overlay.querySelector(".zf271-done").onclick = close;
-    overlay.querySelector(".zf271-backdrop").onclick = close;
-    overlay.querySelector(".zf271-speak").onclick = () => speakDemo(ex,demo);
-    overlay.querySelector(".zf271-stop").onclick = () => speechSynthesis.cancel();
-  }
-
-  function upgradeButtons(){
-    const buttons = [...document.querySelectorAll("button")];
-    for (const b of buttons) {
-      const t = b.textContent.trim().toLowerCase();
-      if (t === "open full demo" || t === "open in-app pt demo") {
-        b.textContent = t === "open full demo" ? "Open guided demo" : "Open guided PT demo";
-        if (!b.dataset.zf271) {
-          b.dataset.zf271 = "1";
-          b.addEventListener("click", e => {
-            e.preventDefault(); e.stopImmediatePropagation();
-            showDemo(currentExercise());
-          }, true);
-        }
-      }
-      if (t.includes("hear pt cues")) {
-        b.textContent = "▶ Guided voice coaching";
-        if (!b.dataset.zf271) {
-          b.dataset.zf271 = "1";
-          b.addEventListener("click", e => {
-            e.preventDefault(); e.stopImmediatePropagation();
-            const ex=currentExercise(), d=demoFor(ex); speakDemo(ex,d);
-          }, true);
-        }
-      }
-    }
-  }
-
-  function addStyles(){
-    if(document.getElementById("zf271-style")) return;
-    const s=document.createElement("style"); s.id="zf271-style";
-    s.textContent=`
-      #zf-guided-demo{position:fixed;inset:0;z-index:999999;font-family:inherit;color:#eef5ff}
-      .zf271-backdrop{position:absolute;inset:0;background:rgba(0,5,15,.78)}
-      .zf271-sheet{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:min(760px,100%);max-height:94vh;overflow:auto;background:#111b2d;border:1px solid #2c3d57;border-radius:28px 28px 0 0;padding:18px 22px 30px;box-sizing:border-box}
-      .zf271-handle{width:72px;height:7px;border-radius:9px;background:#62728a;margin:0 auto 18px}
-      .zf271-head{display:flex;justify-content:space-between;gap:12px;align-items:start}.zf271-head h2{margin:4px 0 0;font-size:30px}.zf271-kicker{color:#83efb0;font-weight:800;letter-spacing:.04em}
-      .zf271-close{background:#1b2940;color:white;border:1px solid #344762;border-radius:50%;width:42px;height:42px;font-size:28px}
-      .zf271-intro{color:#b9c7da;line-height:1.5}.zf271-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
-      .zf271-actions button,.zf271-done{border:0;border-radius:14px;padding:15px;font-weight:800;font-size:16px}.zf271-speak,.zf271-done{background:#39b9ee;color:#06101b}.zf271-stop{background:#1b2940;color:#eef5ff}
-      .zf271-step{display:grid;grid-template-columns:115px 1fr;gap:15px;padding:15px 0;border-top:1px solid #28374d}.zf271-step h3{margin:2px 0 8px;font-size:18px}.zf271-step p{margin:0;color:#d3ddec;line-height:1.55}
-      .zf271-figure{height:112px;border-radius:16px;background:#0b1424;border:1px solid #263a56;position:relative;display:flex;align-items:center;justify-content:center}.zf271-num{position:absolute;top:8px;left:9px;background:#235ddd;border-radius:50%;width:28px;height:28px;display:grid;place-items:center;font-weight:800}
-      .zf271-person{position:relative;width:52px;height:76px}.zf271-person i{position:absolute;display:block;background:#53c9f3;border-radius:8px}.zf271-person .head{width:17px;height:17px;border-radius:50%;left:18px;top:0}.zf271-person .body{width:7px;height:33px;left:23px;top:19px}.zf271-person .arm{width:6px;height:30px;top:22px;transform-origin:top}.zf271-person .arm.a{left:22px;transform:rotate(48deg)}.zf271-person .arm.b{left:26px;transform:rotate(-48deg)}.zf271-person .leg{width:7px;height:31px;top:48px;transform-origin:top}.zf271-person .leg.a{left:23px;transform:rotate(28deg)}.zf271-person .leg.b{left:25px;transform:rotate(-28deg)}
-      .zf271-feel,.zf271-mistakes{margin:16px 0;padding:16px;border-radius:16px;background:#0c1728;border:1px solid #275e46}.zf271-feel strong,.zf271-mistakes strong{color:#9bf2bd}.zf271-feel p,.zf271-mistakes li{line-height:1.5;color:#d7e1ef}.zf271-done{width:100%;margin-top:4px}
-      @media(max-width:520px){.zf271-step{grid-template-columns:90px 1fr}.zf271-figure{height:100px}.zf271-sheet{padding-left:16px;padding-right:16px}.zf271-head h2{font-size:25px}}
-    `;
-    document.head.appendChild(s);
-  }
-
-  function version(){
-    document.querySelectorAll("*").forEach(el=>{
-      if(el.children.length===0 && /^v2\.7\.0$/.test(el.textContent.trim())) el.textContent=VERSION;
-    });
-  }
-
-  addStyles(); version(); upgradeButtons();
-  new MutationObserver(()=>{version();upgradeButtons()}).observe(document.body,{childList:true,subtree:true});
+  function upgrade(){document.querySelectorAll("button").forEach(b=>{const t=b.textContent.trim().toLowerCase();if(t.includes("guided demo")||t.includes("full demo")||t.includes("in-app pt demo")){b.textContent="Open visual PT demo";if(!b.dataset.zf28){b.dataset.zf28="1";b.addEventListener("click",e=>{e.preventDefault();e.stopImmediatePropagation();showDemo(currentExercise())},true)}}if(t.includes("guided voice coaching")||t.includes("hear pt cues")){b.textContent="▶ Smooth PT coaching";if(!b.dataset.zf28){b.dataset.zf28="1";b.addEventListener("click",e=>{e.preventDefault();e.stopImmediatePropagation();const ex=currentExercise();activeEx=ex;activeDemo=demoFor(ex);stepIndex=0;speakStep(0)},true)}}});const badge=document.getElementById("versionBadge");if(badge)badge.textContent=VERSION;}
+  injectV28Styles();upgrade();new MutationObserver(upgrade).observe(document.body,{childList:true,subtree:true});
 })();
