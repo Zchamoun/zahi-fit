@@ -1,0 +1,9 @@
+
+#plannerV25 .choice-row button.active{background:#1d4ed8;border-color:#60a5fa}
+#plannerV25 .choice-row button:disabled{opacity:.35}
+.v25-goals button{font-size:12px}
+.pt-action-v25{color:#7dd3fc}
+.pt-custom-v25{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:14px}
+.pt-custom-v25 .btn{white-space:nowrap}
+#reasonSheetV25 .notice{margin-bottom:8px}
+@media(max-width:520px){.pt-custom-v25{grid-template-columns:1fr}}
