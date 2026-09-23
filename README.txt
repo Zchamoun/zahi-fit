@@ -1,36 +1,52 @@
-ZAHI FIT v2.1.0 — SECURITY & FOUNDATION RELEASE
+ZAHI FIT v2.2.1 — MEDIUM/ADVANCED WORKOUT EXPERIENCE
 
-Security changes
-- Added Content Security Policy
-- Removed inline JavaScript and inline CSS
-- Secure DOM rendering for imported workout data
-- Strict workout-plan schema validation
-- Max plan file size
-- Numeric range validation
-- Text length validation
-- HTTPS-only demo links
-- YouTube allowlist for demo links
-- No OpenAI API key or password stored
-- No Android sensitive permissions requested
+Program design
+- 4 primary sessions
+- Approx. 75–85 minutes each
+- Medium-to-advanced training level
+- Each session includes:
+  1. Mobility warm-up
+  2. Strength / muscle-building work
+  3. Hypertrophy or power work
+  4. Durability / muscular endurance
+  5. Fat-loss conditioning
+  6. Flexibility / stretching cooldown
 
-Reliability changes
-- App version badge
-- Update detection banner
-- Improved service-worker lifecycle
-- Network-first HTML navigation
-- Existing local workout history remains compatible
-- Export history and PT handoff retained
+Session A
+Posterior Strength + StairMaster
+
+Session B
+Upper Strength + Bike Engine
+
+Session C
+Full-Body Athletic Conditioning
+
+Session D
+Lower Muscle + Long StairMaster
+
+UX retained
+- Exercise-by-exercise training
+- Previous performance
+- Rest timer
+- RPE
+- Add/remove sets
+- Skip exercise
+- Persistent active workout
+- ChatGPT PT handoff
+- Secure import
+- CSP and v2.1 security hardening
 
 Deployment
-Upload/replace these files in the GitHub Pages repository root:
+Replace/upload:
 - index.html
 - app.css
 - app.js
 - manifest.json
 - sw.js
-Keep the existing icon-192.png and icon-512.png.
+- README.txt
 
-After GitHub Pages redeploys:
-1. Open Zahi Fit.
-2. Close and reopen once if still on the old version.
-3. Confirm the header shows v2.1.0.
+Keep:
+- icon-192.png
+- icon-512.png
+
+After GitHub Pages deploys, reopen the installed app and confirm v2.2.1.

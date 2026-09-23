@@ -1,396 +1,120 @@
 
 "use strict";
 
-const APP_VERSION = "2.1.0";
-const MAX_IMPORT_BYTES = 200_000;
-const MAX_TEXT = 160;
-const MAX_CUE = 300;
-const MAX_WORKOUTS = 12;
-const MAX_EXERCISES = 30;
-const MAX_SETS = 12;
+const APP_VERSION="2.2.1";
+const ACTIVE_KEY="activeWorkoutV221";
+const MAX_IMPORT_BYTES=200000,MAX_TEXT=160,MAX_CUE=300,MAX_WORKOUTS=12,MAX_EXERCISES=40,MAX_SETS=12;
 
-const DEFAULT_WORKOUTS = [
-  {name:"A — Deadlift + StairMaster",duration:60,exercises:[
-    {n:"Deadlift",sets:4,reps:"5",cue:"Brace hard, keep the bar close, push the floor away. Stop before form breaks.",video:"https://www.youtube.com/results?search_query=deadlift+proper+form"},
-    {n:"Goblet Squat",sets:3,reps:"10",cue:"Hold the dumbbell close to your chest. Sit between the hips and keep knees tracking over toes.",video:"https://www.youtube.com/results?search_query=goblet+squat+proper+form"},
-    {n:"Dumbbell Romanian Deadlift",sets:3,reps:"10",cue:"Soft knees, hinge hips back, keep spine neutral and feel the hamstrings load.",video:"https://www.youtube.com/results?search_query=dumbbell+romanian+deadlift+form"},
-    {n:"Walking Lunges",sets:3,reps:"10/leg",cue:"Keep the front heel planted and lower under control.",video:"https://www.youtube.com/results?search_query=walking+lunge+proper+form"},
-    {n:"10-min AMRAP",sets:1,reps:"8 swings / 8 push-ups / 10 step-ups / 8 DB thrusters",cue:"Move steadily. Do not race technique.",video:"https://www.youtube.com/results?search_query=crossfit+amrap+beginner"},
-    {n:"StairMaster",sets:1,reps:"15 min",cue:"3 min easy, 10 min moderate-hard, 2 min easy.",video:"https://www.youtube.com/results?search_query=stairmaster+technique"}
-  ]},
-  {name:"B — Upper Body + Bike",duration:60,exercises:[
-    {n:"Bench Press",sets:4,reps:"6–8",cue:"Feet planted, shoulder blades set, controlled touch to chest.",video:"https://www.youtube.com/results?search_query=bench+press+proper+form"},
-    {n:"Lat Pulldown",sets:4,reps:"8–10",cue:"Pull elbows toward ribs; avoid swinging.",video:"https://www.youtube.com/results?search_query=lat+pulldown+proper+form"},
-    {n:"Dumbbell Shoulder Press",sets:3,reps:"8–10",cue:"Brace trunk and press without leaning excessively.",video:"https://www.youtube.com/results?search_query=dumbbell+shoulder+press+form"},
-    {n:"Seated Cable Row",sets:3,reps:"10",cue:"Lead with elbows and avoid rounding forward.",video:"https://www.youtube.com/results?search_query=seated+cable+row+form"},
-    {n:"Face Pull",sets:3,reps:"12–15",cue:"Pull toward upper face with elbows high.",video:"https://www.youtube.com/results?search_query=face+pull+proper+form"},
-    {n:"Plank",sets:3,reps:"45 sec",cue:"Ribs down, glutes tight, straight line head to heel.",video:"https://www.youtube.com/results?search_query=plank+proper+form"},
-    {n:"Bike Intervals",sets:1,reps:"20 min",cue:"1 min hard + 2 min easy × 6, then cooldown.",video:"https://www.youtube.com/results?search_query=stationary+bike+interval+training"}
-  ]},
-  {name:"C — Full Body CrossFit",duration:55,exercises:[
-    {n:"Front or Goblet Squat",sets:4,reps:"6–8",cue:"Keep chest tall and control depth.",video:"https://www.youtube.com/results?search_query=front+squat+proper+form"},
-    {n:"Romanian Deadlift",sets:3,reps:"8",cue:"Hinge at hips and keep the bar close.",video:"https://www.youtube.com/results?search_query=romanian+deadlift+proper+form"},
-    {n:"Incline Dumbbell Press",sets:3,reps:"10",cue:"Control descent and keep shoulders stable.",video:"https://www.youtube.com/results?search_query=incline+dumbbell+press+form"},
-    {n:"5-round Metcon",sets:5,reps:"10 KB swings / 8 push press / 10 cal bike / 10 step-ups / 8 rows",cue:"Rest 60–90 sec between rounds. Maintain repeatable pacing.",video:"https://www.youtube.com/results?search_query=crossfit+metcon+beginner"}
-  ]},
-  {name:"D — Legs + StairMaster",duration:65,exercises:[
-    {n:"Squat or Leg Press",sets:4,reps:"8",cue:"Use controlled depth and keep knees tracking with toes.",video:"https://www.youtube.com/results?search_query=leg+press+proper+form"},
-    {n:"Bulgarian Split Squat",sets:3,reps:"8/leg",cue:"Keep front foot stable and lower vertically.",video:"https://www.youtube.com/results?search_query=bulgarian+split+squat+form"},
-    {n:"Hip Thrust",sets:3,reps:"10",cue:"Finish by squeezing glutes, not arching lower back.",video:"https://www.youtube.com/results?search_query=hip+thrust+proper+form"},
-    {n:"Hamstring Curl",sets:3,reps:"10–12",cue:"Control both directions.",video:"https://www.youtube.com/results?search_query=hamstring+curl+proper+form"},
-    {n:"Calf Raise",sets:3,reps:"15",cue:"Full stretch and contraction; avoid bouncing.",video:"https://www.youtube.com/results?search_query=calf+raise+proper+form"},
-    {n:"StairMaster",sets:1,reps:"25–30 min",cue:"Sustainable steady pace. Hard breathing, but no repeated stopping.",video:"https://www.youtube.com/results?search_query=stairmaster+workout+fat+loss"}
-  ]}
+const DEFAULT_WORKOUTS=[
+{name:"A — Posterior Strength + StairMaster",duration:80,focus:"Deadlift strength • glutes/hamstrings • conditioning • hip mobility",exercises:[
+{n:"Hip 90/90 Flow",block:"Mobility",sets:2,reps:"6/side",rest:30,cue:"Move slowly through internal and external hip rotation. Stay tall through the trunk.",video:"https://www.youtube.com/results?search_query=90+90+hip+mobility"},
+{n:"World's Greatest Stretch",block:"Mobility",sets:2,reps:"5/side",rest:30,cue:"Long lunge, thoracic rotation, controlled breathing.",video:"https://www.youtube.com/results?search_query=worlds+greatest+stretch"},
+{n:"Deadlift",block:"Strength",sets:4,reps:"5",rest:150,cue:"Brace hard, keep the bar close, push the floor away. Keep 1–3 clean reps in reserve.",video:"https://www.youtube.com/results?search_query=deadlift+proper+form"},
+{n:"Bulgarian Split Squat",block:"Strength",sets:3,reps:"8/leg",rest:90,cue:"Stable front foot, controlled descent, drive through whole foot.",video:"https://www.youtube.com/results?search_query=bulgarian+split+squat+form"},
+{n:"Dumbbell Romanian Deadlift",block:"Hypertrophy",sets:3,reps:"10",rest:90,cue:"Soft knees, hips back, long spine, load the hamstrings.",video:"https://www.youtube.com/results?search_query=dumbbell+romanian+deadlift+form"},
+{n:"Farmer Carry",block:"Durability",sets:4,reps:"30–40 m",rest:60,cue:"Tall posture, ribs stacked, strong grip, smooth steps.",video:"https://www.youtube.com/results?search_query=farmer+carry+proper+form"},
+{n:"StairMaster Intervals",block:"Conditioning",sets:6,reps:"1 min hard / 1 min easy",rest:0,cue:"Use repeatable hard efforts; do not sprint to failure.",video:"https://www.youtube.com/results?search_query=stairmaster+interval+workout"},
+{n:"Couch Stretch",block:"Flexibility",sets:2,reps:"45 sec/side",rest:20,cue:"Squeeze the glute on the stretching side and keep the ribs down.",video:"https://www.youtube.com/results?search_query=couch+stretch"},
+{n:"Supine Hamstring Stretch",block:"Flexibility",sets:2,reps:"45 sec/side",rest:20,cue:"Keep pelvis neutral and stretch without forcing range.",video:"https://www.youtube.com/results?search_query=supine+hamstring+stretch"}]},
+{name:"B — Upper Strength + Bike Engine",duration:75,focus:"Upper-body muscle • posture • work capacity • shoulder mobility",exercises:[
+{n:"Band Shoulder Dislocates",block:"Mobility",sets:2,reps:"10",rest:20,cue:"Use a wide grip and move only through pain-free range.",video:"https://www.youtube.com/results?search_query=band+shoulder+dislocates"},
+{n:"Thoracic Rotation",block:"Mobility",sets:2,reps:"8/side",rest:20,cue:"Rotate from upper back while hips stay controlled.",video:"https://www.youtube.com/results?search_query=thoracic+rotation+mobility"},
+{n:"Bench Press",block:"Strength",sets:4,reps:"6–8",rest:120,cue:"Feet planted, shoulder blades set, controlled touch to chest.",video:"https://www.youtube.com/results?search_query=bench+press+proper+form"},
+{n:"Chest-Supported Row",block:"Strength",sets:4,reps:"8–10",rest:90,cue:"Pull elbows toward hips and avoid shrugging.",video:"https://www.youtube.com/results?search_query=chest+supported+row+form"},
+{n:"Dumbbell Shoulder Press",block:"Hypertrophy",sets:3,reps:"8–10",rest:90,cue:"Brace trunk and finish with control.",video:"https://www.youtube.com/results?search_query=dumbbell+shoulder+press+form"},
+{n:"Lat Pulldown",block:"Hypertrophy",sets:3,reps:"10–12",rest:75,cue:"Drive elbows down; do not swing.",video:"https://www.youtube.com/results?search_query=lat+pulldown+proper+form"},
+{n:"Push-up + Renegade Row",block:"Durability",sets:3,reps:"6/side",rest:75,cue:"Keep hips square and move deliberately.",video:"https://www.youtube.com/results?search_query=renegade+row+pushup"},
+{n:"Bike Intervals",block:"Conditioning",sets:6,reps:"1 min hard / 2 min easy",rest:0,cue:"Hard but controlled. Maintain similar output across rounds.",video:"https://www.youtube.com/results?search_query=stationary+bike+interval+training"},
+{n:"Doorway Pec Stretch",block:"Flexibility",sets:2,reps:"45 sec/side",rest:20,cue:"Gentle chest stretch without forcing the shoulder forward.",video:"https://www.youtube.com/results?search_query=doorway+pec+stretch"},
+{n:"Child's Pose Lat Stretch",block:"Flexibility",sets:2,reps:"45 sec",rest:20,cue:"Reach long through the arms and breathe into the upper back.",video:"https://www.youtube.com/results?search_query=childs+pose+lat+stretch"}]},
+{name:"C — Full-Body Athletic Conditioning",duration:85,focus:"Power • total-body muscle • CrossFit-style engine • trunk durability",exercises:[
+{n:"Deep Squat Pry",block:"Mobility",sets:2,reps:"45 sec",rest:20,cue:"Sit into a comfortable deep squat and gently open the hips.",video:"https://www.youtube.com/results?search_query=deep+squat+pry+mobility"},
+{n:"Inchworm to Down Dog",block:"Mobility",sets:2,reps:"6",rest:30,cue:"Move smoothly through shoulders, trunk and posterior chain.",video:"https://www.youtube.com/results?search_query=inchworm+to+downward+dog"},
+{n:"Front Squat",block:"Strength",sets:4,reps:"6",rest:120,cue:"Elbows high, brace hard, stand through the mid-foot.",video:"https://www.youtube.com/results?search_query=front+squat+proper+form"},
+{n:"Incline Dumbbell Press",block:"Hypertrophy",sets:3,reps:"10",rest:75,cue:"Control the lowering phase and keep shoulders stable.",video:"https://www.youtube.com/results?search_query=incline+dumbbell+press+form"},
+{n:"Single-Arm Cable Row",block:"Hypertrophy",sets:3,reps:"10/side",rest:75,cue:"Keep ribs down and finish the pull with the back.",video:"https://www.youtube.com/results?search_query=single+arm+cable+row"},
+{n:"Kettlebell Swing",block:"Power",sets:5,reps:"12",rest:60,cue:"Explosive hip snap; arms guide rather than lift.",video:"https://www.youtube.com/results?search_query=kettlebell+swing+proper+form"},
+{n:"CrossFit Engine Circuit",block:"Conditioning",sets:5,reps:"10 cal bike / 10 box step-ups / 8 DB push press / 10 KB deadlifts",rest:75,cue:"Sustainable pace. Keep movement quality consistent across all rounds.",video:"https://www.youtube.com/results?search_query=crossfit+conditioning+circuit"},
+{n:"Pallof Press",block:"Durability",sets:3,reps:"10/side",rest:45,cue:"Resist rotation; keep pelvis and ribs stacked.",video:"https://www.youtube.com/results?search_query=pallof+press+proper+form"},
+{n:"Hip Flexor + Rotation Stretch",block:"Flexibility",sets:2,reps:"45 sec/side",rest:20,cue:"Open the hip flexor first, then add gentle thoracic rotation.",video:"https://www.youtube.com/results?search_query=hip+flexor+rotation+stretch"},
+{n:"Figure-4 Glute Stretch",block:"Flexibility",sets:2,reps:"45 sec/side",rest:20,cue:"Relax the hip and keep the lower back neutral.",video:"https://www.youtube.com/results?search_query=figure+4+glute+stretch"}]},
+{name:"D — Lower Muscle + Long StairMaster",duration:80,focus:"Leg hypertrophy • joint durability • aerobic fat-loss work • lower-body flexibility",exercises:[
+{n:"Ankle Dorsiflexion Rock",block:"Mobility",sets:2,reps:"10/side",rest:20,cue:"Keep heel down and drive knee forward over the toes.",video:"https://www.youtube.com/results?search_query=ankle+dorsiflexion+mobility"},
+{n:"Cossack Squat",block:"Mobility",sets:2,reps:"6/side",rest:30,cue:"Shift slowly side to side and use only a comfortable depth.",video:"https://www.youtube.com/results?search_query=cossack+squat+mobility"},
+{n:"Leg Press",block:"Strength",sets:4,reps:"8",rest:120,cue:"Control depth and keep pelvis stable against the pad.",video:"https://www.youtube.com/results?search_query=leg+press+proper+form"},
+{n:"Walking Dumbbell Lunge",block:"Hypertrophy",sets:3,reps:"10/leg",rest:90,cue:"Stay tall and control each step.",video:"https://www.youtube.com/results?search_query=dumbbell+walking+lunge+form"},
+{n:"Hip Thrust",block:"Hypertrophy",sets:4,reps:"10",rest:90,cue:"Finish by squeezing glutes rather than extending the lower back.",video:"https://www.youtube.com/results?search_query=hip+thrust+proper+form"},
+{n:"Hamstring Curl",block:"Hypertrophy",sets:3,reps:"12",rest:60,cue:"Smooth tempo, full control.",video:"https://www.youtube.com/results?search_query=hamstring+curl+proper+form"},
+{n:"Step-Down Control",block:"Durability",sets:3,reps:"8/leg",rest:60,cue:"Slow eccentric lowering; knee tracks over the foot.",video:"https://www.youtube.com/results?search_query=step+down+exercise+knee+control"},
+{n:"StairMaster Steady State",block:"Conditioning",sets:1,reps:"25–30 min",rest:0,cue:"Sustainable pace. Hard breathing but still controlled.",video:"https://www.youtube.com/results?search_query=stairmaster+steady+state+workout"},
+{n:"Adductor Rockback Stretch",block:"Flexibility",sets:2,reps:"8/side",rest:20,cue:"Move slowly back until you feel the inner-thigh stretch.",video:"https://www.youtube.com/results?search_query=adductor+rockback"},
+{n:"Calf Wall Stretch",block:"Flexibility",sets:2,reps:"45 sec/side",rest:20,cue:"Keep heel grounded and toes forward.",video:"https://www.youtube.com/results?search_query=calf+wall+stretch"}]}
 ];
 
-const $ = id => document.getElementById(id);
-let workouts = loadWorkouts();
-let activeIndex = Number(localStorage.getItem("nextWorkout") || 0) % workouts.length;
-let sessionStart = null;
-let timerInterval = null;
-let deferredPrompt = null;
-let pendingWorker = null;
+const $=id=>document.getElementById(id);
+let workouts=loadWorkouts(),activeIndex=Number(localStorage.getItem("nextWorkout")||0)%workouts.length;
+let state=null,timerInterval=null,restInterval=null,pendingWorker=null;
 
-function loadWorkouts(){
-  try{
-    const raw = localStorage.getItem("workouts");
-    if(!raw) return structuredClone(DEFAULT_WORKOUTS);
-    const parsed = JSON.parse(raw);
-    return validatePlan(parsed);
-  }catch{
-    localStorage.removeItem("workouts");
-    return structuredClone(DEFAULT_WORKOUTS);
-  }
-}
-
-function safeText(value, max=MAX_TEXT){
-  if(typeof value !== "string") throw new Error("Invalid text field");
-  const v = value.trim();
-  if(!v || v.length > max) throw new Error("Text field out of range");
-  return v;
-}
-
-function safeVideoUrl(value){
-  if(typeof value !== "string") throw new Error("Invalid video URL");
-  let u;
-  try{ u = new URL(value); } catch { throw new Error("Invalid video URL"); }
-  if(u.protocol !== "https:") throw new Error("Only HTTPS demo URLs are allowed");
-  const allowed = ["www.youtube.com","youtube.com","youtu.be"];
-  if(!allowed.includes(u.hostname)) throw new Error("Demo URL must be YouTube");
-  return u.toString();
-}
-
+function clone(x){return JSON.parse(JSON.stringify(x))}
+function safeText(v,max=MAX_TEXT){if(typeof v!=="string")throw new Error("Invalid text");v=v.trim();if(!v||v.length>max)throw new Error("Text out of range");return v}
+function safeVideoUrl(v){let u;try{u=new URL(v)}catch{throw new Error("Invalid video URL")}if(u.protocol!=="https:")throw new Error("HTTPS required");if(!["www.youtube.com","youtube.com","youtu.be"].includes(u.hostname))throw new Error("Only YouTube demo links allowed");return u.toString()}
 function validatePlan(input){
-  const arr = Array.isArray(input) ? input : input && Array.isArray(input.workouts) ? input.workouts : null;
-  if(!arr || arr.length < 1 || arr.length > MAX_WORKOUTS) throw new Error("Invalid number of workouts");
-  return arr.map(w=>{
-    if(!w || typeof w !== "object") throw new Error("Invalid workout");
-    const name = safeText(w.name);
-    const duration = Number(w.duration);
-    if(!Number.isFinite(duration) || duration < 5 || duration > 240) throw new Error("Invalid workout duration");
-    if(!Array.isArray(w.exercises) || w.exercises.length < 1 || w.exercises.length > MAX_EXERCISES) throw new Error("Invalid exercise list");
-    const exercises = w.exercises.map(ex=>{
-      if(!ex || typeof ex !== "object") throw new Error("Invalid exercise");
-      const n = safeText(ex.n);
-      const sets = Number(ex.sets);
-      if(!Number.isInteger(sets) || sets < 1 || sets > MAX_SETS) throw new Error("Invalid set count");
-      return {
-        n,
-        sets,
-        reps: safeText(ex.reps, 120),
-        cue: safeText(ex.cue, MAX_CUE),
-        video: safeVideoUrl(ex.video)
-      };
-    });
-    return {name,duration,exercises};
-  });
+ const arr=Array.isArray(input)?input:input&&Array.isArray(input.workouts)?input.workouts:null;if(!arr||arr.length<1||arr.length>MAX_WORKOUTS)throw new Error("Invalid workout count");
+ return arr.map(w=>{const duration=Number(w.duration);if(!Number.isFinite(duration)||duration<5||duration>240)throw new Error("Invalid duration");
+ if(!Array.isArray(w.exercises)||w.exercises.length<1||w.exercises.length>MAX_EXERCISES)throw new Error("Invalid exercise list");
+ return {name:safeText(w.name),duration,focus:safeText(w.focus||"Mixed training",220),exercises:w.exercises.map(ex=>{const sets=Number(ex.sets),rest=ex.rest===undefined?90:Number(ex.rest);if(!Number.isInteger(sets)||sets<1||sets>MAX_SETS)throw new Error("Invalid sets");if(!Number.isInteger(rest)||rest<0||rest>600)throw new Error("Invalid rest");return {n:safeText(ex.n),block:safeText(ex.block||"Training",50),sets,reps:safeText(ex.reps,140),rest,cue:safeText(ex.cue,MAX_CUE),video:safeVideoUrl(ex.video)}})}})
 }
-
-function node(tag, cls, text){
-  const e = document.createElement(tag);
-  if(cls) e.className = cls;
-  if(text !== undefined) e.textContent = text;
-  return e;
-}
-
-function showTab(id, btn){
-  ["home","session","history","guide"].forEach(x => $(x).classList.add("hidden"));
-  $(id).classList.remove("hidden");
-  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-  if(btn) btn.classList.add("active");
-  if(id === "history") renderHistory();
-}
-
+function loadWorkouts(){try{const r=localStorage.getItem("workouts");return r?validatePlan(JSON.parse(r)):clone(DEFAULT_WORKOUTS)}catch{localStorage.removeItem("workouts");return clone(DEFAULT_WORKOUTS)}}
+function getHistory(){try{const h=JSON.parse(localStorage.getItem("history")||"[]");return Array.isArray(h)?h:[]}catch{return[]}}
+function node(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e}
+function chipClass(block){const b=block.toLowerCase();if(b.includes("mob"))return"chip mob";if(b.includes("strength")||b.includes("hypertrophy")||b.includes("power"))return"chip str";if(b.includes("condition"))return"chip cond";if(b.includes("dur"))return"chip dur";if(b.includes("flex"))return"chip flex";return"chip"}
+function showTab(id,btn){["home","session","history","guide"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden");document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));if(btn)btn.classList.add("active");if(id==="history")renderHistory()}
 function renderHome(){
-  const w = workouts[activeIndex];
-  $("todayTitle").textContent = w.name;
-  $("todayMeta").textContent = `Approx. ${w.duration} min`;
-
-  const rotation = $("rotation");
-  rotation.replaceChildren();
-  workouts.forEach((x,i)=>{
-    const wrap = node("div","workout");
-    wrap.append(node("h3","",x.name));
-    wrap.append(node("div","meta",`${x.duration} min • ${x.exercises.length} blocks`));
-    const b = node("button","btn small secondary","Start this");
-    b.type = "button";
-    b.addEventListener("click",()=>startWorkout(i));
-    wrap.append(b);
-    rotation.append(wrap);
-  });
-
-  const h = getHistory();
-  const weekAgo = new Date(Date.now()-7*86400000);
-  const wh = h.filter(x => new Date(x.date) >= weekAgo);
-  $("statSessions").textContent = wh.length;
-  $("statMinutes").textContent = wh.reduce((a,b)=>a+(Number(b.minutes)||0),0);
-  $("statStreak").textContent = calcStreak(h);
+ const w=workouts[activeIndex];$("todayTitle").textContent=w.name;$("todayMeta").textContent=`Approx. ${w.duration} min`;$("todayFocus").textContent=w.focus;
+ const rot=$("rotation");rot.replaceChildren();workouts.forEach((x,i)=>{const wrap=node("div","workout");wrap.append(node("h3","",x.name),node("div","meta",`${x.duration} min`),node("div","notice",x.focus));const tags=node("div","workout-tags");["Mobility","Strength","Durability","Conditioning","Flexibility"].forEach(t=>tags.append(node("span",chipClass(t),t)));wrap.append(tags);const b=node("button","btn small secondary","Start this");b.addEventListener("click",()=>startWorkout(i));wrap.append(b);rot.append(wrap)});
+ const h=getHistory(),weekAgo=new Date(Date.now()-7*86400000),wh=h.filter(x=>new Date(x.date)>=weekAgo);$("statSessions").textContent=wh.length;$("statMinutes").textContent=wh.reduce((a,b)=>a+(Number(b.minutes)||0),0);$("statStreak").textContent=calcStreak(h);
+ const saved=loadActiveState(false);if(saved){$("resumeCard").classList.remove("hidden");$("resumeText").textContent=`${saved.workoutName} • exercise ${saved.exerciseIndex+1} of ${saved.exercises.length}`}else $("resumeCard").classList.add("hidden");
 }
-
-function calcStreak(h){
-  const days = [...new Set(h.map(x=>new Date(x.date).toDateString()))];
-  if(!days.length) return 0;
-  let streak=0,d=new Date();
-  for(let i=0;i<365;i++){
-    if(days.includes(d.toDateString())) streak++;
-    else if(i>0) break;
-    d.setDate(d.getDate()-1);
-  }
-  return streak;
+function calcStreak(h){const d=[...new Set(h.map(x=>new Date(x.date).toDateString()))];if(!d.length)return 0;let n=0,x=new Date();for(let i=0;i<365;i++){if(d.includes(x.toDateString()))n++;else if(i>0)break;x.setDate(x.getDate()-1)}return n}
+function previousFor(name){for(const rec of getHistory()){if(Array.isArray(rec.details)){const m=rec.details.find(d=>d.exercise===name);if(m)return m}}return null}
+function newState(i){const w=workouts[i];return {version:3,workoutIndex:i,workoutName:w.name,startTime:Date.now(),exerciseIndex:0,exercises:w.exercises.map(ex=>({name:ex.n,block:ex.block,targetReps:ex.reps,rest:ex.rest,cue:ex.cue,video:ex.video,skipped:false,rpe:null,sets:Array.from({length:ex.sets},()=>({w:"",r:"",done:false}))}))}}
+function persistState(){if(state)localStorage.setItem(ACTIVE_KEY,JSON.stringify(state))}
+function loadActiveState(set=true){try{const s=JSON.parse(localStorage.getItem(ACTIVE_KEY)||"null");if(!s||!Array.isArray(s.exercises))return null;if(set)state=s;return s}catch{return null}}
+function startWorkout(i){if(loadActiveState(false)&&!confirm("A workout is already in progress. Replace it?"))return;state=newState(i);persistState();activateSession()}
+function resumeWorkout(){if(loadActiveState(true))activateSession()}
+function activateSession(){activeIndex=state.workoutIndex;$("sessionTitle").textContent=state.workoutName;clearInterval(timerInterval);timerInterval=setInterval(updateWorkoutClock,1000);renderExercise();showTab("session",document.querySelector('[data-tab="session"]'))}
+function updateWorkoutClock(){if(!state)return;const s=Math.floor((Date.now()-state.startTime)/1000);$("timer").textContent=`${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`}
+function completion(){let total=0,done=0;state.exercises.forEach(ex=>{ex.sets.forEach(s=>{total++;if(s.done||ex.skipped)done++})});return total?Math.round(done/total*100):0}
+function renderExercise(){
+ if(!state)return;const ex=state.exercises[state.exerciseIndex],box=$("activeExerciseCard");box.replaceChildren();$("exerciseCounter").textContent=`Exercise ${state.exerciseIndex+1} of ${state.exercises.length}`;$("completionCounter").textContent=`${completion()}% complete`;$("bar").style.width=`${completion()}%`;$("prevExerciseBtn").disabled=state.exerciseIndex===0;$("nextExerciseBtn").disabled=state.exerciseIndex===state.exercises.length-1;
+ box.append(node("div","block-label",ex.block),node("div","exercise-title",ex.name),node("div","cue",ex.cue));
+ const meta=node("div","exercise-meta");meta.append(node("span",chipClass(ex.block),ex.block),node("span","chip",`${ex.sets.length} sets`),node("span","chip",`Target: ${ex.targetReps}`),node("span","chip",ex.rest?`Rest: ${ex.rest}s`:"Continuous"));box.append(meta);
+ const prev=previousFor(ex.name),pb=node("div","previous-box");pb.append(node("b","","Previous performance"));if(prev&&Array.isArray(prev.sets)&&prev.sets.length){pb.append(node("div","meta",prev.sets.map((s,i)=>`S${i+1}: ${s.w||"—"} × ${s.r||"—"}`).join(" • ")))}else pb.append(node("div","meta","No previous logged performance yet."));box.append(pb);
+ const a=node("a","btn blue demo-link","▶ Demo video");a.href=ex.video;a.target="_blank";a.rel="noopener noreferrer";box.append(a);
+ const table=node("div","set-table"),head=node("div","set-row set-head");["Set","kg / level","Reps / time","Done"].forEach(t=>head.append(node("div","",t)));table.append(head);
+ ex.sets.forEach((s,si)=>{const row=node("div","set-row");row.append(node("div","setnum",String(si+1)));const w=document.createElement("input");w.inputMode="decimal";w.maxLength=12;w.value=s.w;w.placeholder=["Mobility","Flexibility"].includes(ex.block)?"Optional":ex.name.includes("Stair")||ex.name.includes("Bike")?"Level":"kg";w.addEventListener("input",()=>{s.w=w.value.slice(0,12);persistState()});const r=document.createElement("input");r.maxLength=45;r.value=s.r;r.placeholder=ex.targetReps;r.addEventListener("input",()=>{s.r=r.value.slice(0,45);persistState()});const c=node("button","check"+(s.done?" done":""),"✓");c.addEventListener("click",()=>{s.done=!s.done;c.classList.toggle("done",s.done);persistState();updateProgressOnly();if(s.done&&ex.rest>0)startRest(ex.rest)});row.append(w,r,c);table.append(row)});box.append(table);
+ const actions=node("div","exercise-actions");const add=node("button","btn secondary","+ Add set");add.addEventListener("click",()=>{if(ex.sets.length<MAX_SETS){ex.sets.push({w:"",r:"",done:false});persistState();renderExercise()}});const rem=node("button","btn secondary","− Remove set");rem.addEventListener("click",()=>{if(ex.sets.length>1){ex.sets.pop();persistState();renderExercise()}});const cp=node("button","btn secondary","Copy previous");cp.disabled=!(prev&&Array.isArray(prev.sets));cp.addEventListener("click",()=>{if(prev&&Array.isArray(prev.sets)){prev.sets.forEach((ps,i)=>{if(ex.sets[i]){ex.sets[i].w=ps.w||"";ex.sets[i].r=ps.r||""}});persistState();renderExercise()}});actions.append(add,rem,cp);box.append(actions);
+ if(!["Mobility","Flexibility"].includes(ex.block)){const rw=node("div","rpe-wrap"),label=node("div","rpe-label");label.append(node("b","","Difficulty / RPE"),node("span","meta",ex.rpe?`Selected: ${ex.rpe}`:"Optional"));rw.append(label);const rb=node("div","rpe-buttons");[["Easy",6],["Good",7],["Hard",8],["Very hard",9]].forEach(([lab,val])=>{const b=node("button","rpe"+(ex.rpe===val?" active":""),`${lab} • ${val}`);b.addEventListener("click",()=>{ex.rpe=val;persistState();renderExercise()});rb.append(b)});rw.append(rb);box.append(rw)}
+ $("skipExerciseBtn").textContent=ex.skipped?"Unskip":"Skip";updateProgressOnly();
 }
-
-function createExerciseCard(ex, ei){
-  const card = node("div","card exercise");
-  card.dataset.ex = String(ei);
-  card.append(node("div","exercise-title",ex.n));
-  card.append(node("div","cue",ex.cue));
-
-  const link = node("a","btn small blue demo-link","▶ Demo video");
-  link.href = ex.video;
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  card.append(link);
-
-  const sets = node("div","sets");
-  sets.append(node("div","setnum","Set"), node("div","meta","Weight / level"), node("div","meta","Reps / time"), node("div",""));
-  for(let si=0; si<ex.sets; si++){
-    sets.append(node("div","setnum",String(si+1)));
-    const w = document.createElement("input");
-    w.inputMode = "decimal";
-    w.maxLength = 12;
-    w.placeholder = (ex.n.includes("Stair")||ex.n.includes("Bike")) ? "Level" : "kg";
-    w.dataset.key = `${ei}-${si}-w`;
-
-    const r = document.createElement("input");
-    r.maxLength = 40;
-    r.placeholder = ex.reps;
-    r.dataset.key = `${ei}-${si}-r`;
-
-    const c = node("button","check","✓");
-    c.type = "button";
-    c.addEventListener("click",()=>{ c.classList.toggle("done"); updateProgress(); });
-
-    sets.append(w,r,c);
-  }
-  card.append(sets);
-  return card;
-}
-
-function startWorkout(i){
-  activeIndex=i;
-  sessionStart=Date.now();
-  clearInterval(timerInterval);
-  timerInterval=setInterval(updateTimer,1000);
-  const w=workouts[i];
-  $("sessionTitle").textContent=w.name;
-  const list=$("exerciseList");
-  list.replaceChildren();
-  w.exercises.forEach((ex,ei)=>list.append(createExerciseCard(ex,ei)));
-  $("sessionNotes").value="";
-  updateProgress();
-  showTab("session",document.querySelector('[data-tab="session"]'));
-}
-
-function updateProgress(){
-  const checks=[...document.querySelectorAll(".check")];
-  const done=checks.filter(x=>x.classList.contains("done")).length;
-  $("bar").style.width=checks.length?`${done/checks.length*100}%`:"0%";
-}
-
-function updateTimer(){
-  if(!sessionStart) return;
-  const s=Math.floor((Date.now()-sessionStart)/1000),m=Math.floor(s/60),sec=s%60;
-  $("timer").textContent=`${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
-}
-
-function getHistory(){
-  try{
-    const h=JSON.parse(localStorage.getItem("history")||"[]");
-    return Array.isArray(h)?h:[];
-  }catch{return [];}
-}
-
-function finishWorkout(){
-  if(!sessionStart) return;
-  const w=workouts[activeIndex], details=[];
-  document.querySelectorAll(".exercise").forEach((card,ei)=>{
-    const exInputs=[...card.querySelectorAll("input")];
-    const sets=[];
-    exInputs.forEach(inp=>{
-      const [e,s,type]=inp.dataset.key.split("-");
-      if(!sets[Number(s)]) sets[Number(s)]={};
-      sets[Number(s)][type]=inp.value.slice(0,40);
-    });
-    const done=[...card.querySelectorAll(".check")].map(x=>x.classList.contains("done"));
-    details.push({exercise:w.exercises[ei].n,sets,done});
-  });
-
-  const rec={
-    date:new Date().toISOString(),
-    workout:w.name,
-    minutes:Math.max(1,Math.round((Date.now()-sessionStart)/60000)),
-    notes:$("sessionNotes").value.slice(0,500),
-    details
-  };
-  const h=getHistory();
-  h.unshift(rec);
-  localStorage.setItem("history",JSON.stringify(h.slice(0,500)));
-  activeIndex=(activeIndex+1)%workouts.length;
-  localStorage.setItem("nextWorkout",String(activeIndex));
-  clearInterval(timerInterval);
-  sessionStart=null;
-  $("timer").textContent="00:00";
-  renderHome();
-  renderHistory();
-  showTab("home",document.querySelector('[data-tab="home"]'));
-  alert("Workout saved.");
-}
-
-function renderHistory(){
-  const box=$("historyList");
-  box.replaceChildren();
-  const h=getHistory();
-  if(!h.length){box.append(node("div","meta","No workouts logged yet."));return;}
-  h.forEach(x=>{
-    const item=node("div","workout");
-    item.append(node("b","",String(x.workout||"Workout")));
-    item.append(node("div","meta",`${new Date(x.date).toLocaleString()} • ${Number(x.minutes)||0} min`));
-    if(x.notes) item.append(node("div","cue",String(x.notes)));
-    box.append(item);
-  });
-}
-
-function ptContext(){
-  const h=getHistory().slice(0,5),w=workouts[activeIndex];
-  return `I am using my Zahi Fit gym app. Act as my PT for this plan.
-NEXT/CURRENT WORKOUT:
-${JSON.stringify(w,null,2)}
-
+function updateProgressOnly(){const p=completion();$("completionCounter").textContent=`${p}% complete`;$("bar").style.width=`${p}%`}
+function gotoExercise(delta){stopRest();state.exerciseIndex=Math.max(0,Math.min(state.exercises.length-1,state.exerciseIndex+delta));persistState();renderExercise()}
+function toggleSkip(){const ex=state.exercises[state.exerciseIndex];ex.skipped=!ex.skipped;persistState();renderExercise()}
+function startRest(sec){stopRest();let remain=sec;$("restCard").classList.remove("hidden");function paint(){$("restTimer").textContent=`${String(Math.floor(remain/60)).padStart(2,"0")}:${String(remain%60).padStart(2,"0")}`}paint();restInterval=setInterval(()=>{remain--;paint();if(remain<=0){stopRest();if(navigator.vibrate)navigator.vibrate([250,100,250])}},1000);$("restMinusBtn").onclick=()=>{remain=Math.max(0,remain-15);paint()};$("restPlusBtn").onclick=()=>{remain+=15;paint()}}
+function stopRest(){clearInterval(restInterval);restInterval=null;$("restCard").classList.add("hidden")}
+function finishWorkout(){if(!state)return;if(!confirm("Finish and save this workout?"))return;stopRest();clearInterval(timerInterval);const minutes=Math.max(1,Math.round((Date.now()-state.startTime)/60000)),details=state.exercises.map(ex=>({exercise:ex.name,block:ex.block,sets:ex.sets.map(s=>({w:s.w,r:s.r})),done:ex.sets.map(s=>s.done),skipped:ex.skipped,rpe:ex.rpe})),h=getHistory();h.unshift({date:new Date().toISOString(),workout:state.workoutName,minutes,details});localStorage.setItem("history",JSON.stringify(h.slice(0,500)));activeIndex=(state.workoutIndex+1)%workouts.length;localStorage.setItem("nextWorkout",String(activeIndex));localStorage.removeItem(ACTIVE_KEY);state=null;renderHome();renderHistory();showTab("home",document.querySelector('[data-tab="home"]'));alert("Workout saved.")}
+function renderHistory(){const box=$("historyList");box.replaceChildren();const h=getHistory();if(!h.length){box.append(node("div","meta","No workouts logged yet."));return}h.forEach(x=>{const item=node("div","history-item"),sum=node("div","history-summary");sum.append(node("b","",String(x.workout||"Workout")),node("span","meta",`${Number(x.minutes)||0} min`));item.append(sum,node("div","history-detail",new Date(x.date).toLocaleString()));if(Array.isArray(x.details)){const done=x.details.reduce((a,d)=>a+(Array.isArray(d.done)?d.done.filter(Boolean).length:0),0);item.append(node("div","history-detail",`${done} completed sets logged`))}box.append(item)})}
+function ptContext(){const recent=getHistory().slice(0,5),current=state?{workout:state.workoutName,exercise:state.exercises[state.exerciseIndex],exerciseNumber:state.exerciseIndex+1,totalExercises:state.exercises.length}:workouts[activeIndex];return `I am using Zahi Fit v${APP_VERSION}. Act as my PT. My plan is medium-to-advanced, 60–90 min, combining strength/muscle, fat-loss conditioning, durability, mobility and flexibility.
+CURRENT CONTEXT:
+${JSON.stringify(current,null,2)}
 RECENT HISTORY:
-${JSON.stringify(h,null,2)}
-
-Help me with progression, substitutions, technique, or today's session. Do not change the whole program unless I ask.`;
-}
-
-async function copyText(t){
-  try{ await navigator.clipboard.writeText(t); return true; }catch{return false;}
-}
-
-async function askChatGPT(){
-  await copyText(ptContext());
-  const intent="intent://chatgpt.com/#Intent;scheme=https;package=com.openai.chatgpt;S.browser_fallback_url=https%3A%2F%2Fchatgpt.com%2F;end";
-  window.location.href=intent;
-}
-
-function download(name,data,type="application/json"){
-  const blob=new Blob([data],{type});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download=name;
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),500);
-}
-
-async function importPlan(ev){
-  const f=ev.target.files && ev.target.files[0];
-  ev.target.value="";
-  if(!f) return;
-  if(f.size > MAX_IMPORT_BYTES){ alert("Plan file is too large."); return; }
-  try{
-    const text=await f.text();
-    const parsed=JSON.parse(text);
-    const plan=validatePlan(parsed);
-    workouts=plan;
-    localStorage.setItem("workouts",JSON.stringify(plan));
-    activeIndex=0;
-    localStorage.setItem("nextWorkout","0");
-    renderHome();
-    alert("Secure plan import completed. Workout history was kept.");
-  }catch(err){
-    alert(`Plan rejected: ${err.message || "invalid file"}`);
-  }
-}
-
-function resetData(){
-  if(!confirm("Delete workout history and reset the custom plan? This cannot be undone unless you exported a backup.")) return;
-  ["history","nextWorkout","workouts"].forEach(k=>localStorage.removeItem(k));
-  workouts=structuredClone(DEFAULT_WORKOUTS);
-  activeIndex=0;
-  renderHome();
-  renderHistory();
-}
-
-function setupInstall(){
-  window.addEventListener("beforeinstallprompt",e=>{
-    e.preventDefault();deferredPrompt=e;$("installCard").style.display="block";
-  });
-  $("installBtn").addEventListener("click",async()=>{
-    if(!deferredPrompt){ alert("Use Chrome menu > Add to Home screen / Install app."); return; }
-    deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    deferredPrompt=null;
-  });
-}
-
-function setupServiceWorker(){
-  if(!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("sw.js").then(reg=>{
-    reg.update().catch(()=>{});
-    reg.addEventListener("updatefound",()=>{
-      const nw=reg.installing;
-      if(!nw) return;
-      nw.addEventListener("statechange",()=>{
-        if(nw.state==="installed" && navigator.serviceWorker.controller){
-          pendingWorker=nw;
-          $("updateBanner").classList.remove("hidden");
-        }
-      });
-    });
-  }).catch(()=>{});
-  navigator.serviceWorker.addEventListener("controllerchange",()=>window.location.reload());
-  $("updateNowBtn").addEventListener("click",()=>{
-    if(pendingWorker) pendingWorker.postMessage({type:"SKIP_WAITING"});
-    else window.location.reload();
-  });
-}
-
-function bindEvents(){
-  $("startTodayBtn").addEventListener("click",()=>startWorkout(activeIndex));
-  $("askPtHomeBtn").addEventListener("click",askChatGPT);
-  $("askPtSessionBtn").addEventListener("click",askChatGPT);
-  $("askPtSettingsBtn").addEventListener("click",askChatGPT);
-  $("copySessionBtn").addEventListener("click",async()=>alert(await copyText(ptContext())?"Session context copied.":"Could not access clipboard."));
-  $("finishWorkoutBtn").addEventListener("click",finishWorkout);
-  $("exportPtBtn").addEventListener("click",()=>download("zahi-fit-pt-handoff.json",JSON.stringify({version:APP_VERSION,nextWorkout:activeIndex,workouts,history:getHistory()},null,2)));
-  $("exportDataBtn").addEventListener("click",()=>download("zahi-fit-history.json",JSON.stringify(getHistory(),null,2)));
-  $("resetDataBtn").addEventListener("click",resetData);
-  $("planImport").addEventListener("change",importPlan);
-  document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>showTab(b.dataset.tab,b)));
-}
-
-$("versionBadge").textContent=`v${APP_VERSION}`;
-setupInstall();
-setupServiceWorker();
-bindEvents();
-renderHome();
-renderHistory();
+${JSON.stringify(recent,null,2)}
+Help with progression, substitution, technique, recovery, or today's session.`}
+async function copyText(t){try{await navigator.clipboard.writeText(t);return true}catch{return false}}
+async function askChatGPT(){await copyText(ptContext());window.location.href="intent://chatgpt.com/#Intent;scheme=https;package=com.openai.chatgpt;S.browser_fallback_url=https%3A%2F%2Fchatgpt.com%2F;end"}
+function download(name,data){const b=new Blob([data],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500)}
+async function importPlan(ev){const f=ev.target.files&&ev.target.files[0];ev.target.value="";if(!f)return;if(f.size>MAX_IMPORT_BYTES){alert("Plan too large.");return}try{const p=validatePlan(JSON.parse(await f.text()));workouts=p;localStorage.setItem("workouts",JSON.stringify(p));activeIndex=0;localStorage.setItem("nextWorkout","0");renderHome();alert("Plan imported securely.")}catch(e){alert(`Plan rejected: ${e.message||"invalid file"}`)}}
+function resetData(){if(!confirm("Delete workout history, active workout, and custom plan?"))return;["history","nextWorkout","workouts",ACTIVE_KEY].forEach(k=>localStorage.removeItem(k));workouts=clone(DEFAULT_WORKOUTS);activeIndex=0;state=null;renderHome();renderHistory()}
+function setupSW(){if(!("serviceWorker"in navigator))return;navigator.serviceWorker.register("sw.js").then(reg=>{reg.update().catch(()=>{});reg.addEventListener("updatefound",()=>{const nw=reg.installing;if(!nw)return;nw.addEventListener("statechange",()=>{if(nw.state==="installed"&&navigator.serviceWorker.controller){pendingWorker=nw;$("updateBanner").classList.remove("hidden")}})})});navigator.serviceWorker.addEventListener("controllerchange",()=>location.reload());$("updateNowBtn").addEventListener("click",()=>{if(pendingWorker)pendingWorker.postMessage({type:"SKIP_WAITING"});else location.reload()})}
+function bind(){$("startTodayBtn").addEventListener("click",()=>startWorkout(activeIndex));$("resumeBtn").addEventListener("click",resumeWorkout);$("prevExerciseBtn").addEventListener("click",()=>gotoExercise(-1));$("nextExerciseBtn").addEventListener("click",()=>gotoExercise(1));$("skipExerciseBtn").addEventListener("click",toggleSkip);$("restSkipBtn").addEventListener("click",stopRest);$("finishWorkoutBtn").addEventListener("click",finishWorkout);["askPtHomeBtn","askPtSessionBtn","askPtSettingsBtn"].forEach(id=>$(id).addEventListener("click",askChatGPT));$("exportDataBtn").addEventListener("click",()=>download("zahi-fit-history.json",JSON.stringify(getHistory(),null,2)));$("exportPtBtn").addEventListener("click",()=>download("zahi-fit-pt-handoff.json",JSON.stringify({version:APP_VERSION,nextWorkout:activeIndex,workouts,history:getHistory(),active:loadActiveState(false)},null,2)));$("planImport").addEventListener("change",importPlan);$("resetDataBtn").addEventListener("click",resetData);document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>showTab(b.dataset.tab,b)))}
+$("versionBadge").textContent=`v${APP_VERSION}`;setupSW();bind();renderHome();renderHistory();

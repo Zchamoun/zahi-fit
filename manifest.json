@@ -7,7 +7,7 @@
   "display": "standalone",
   "background_color": "#0b1020",
   "theme_color": "#0b1020",
-  "description": "Personal PT workout tracker with secure plan import and ChatGPT coaching handoff.",
+  "description": "Medium-to-advanced personal PT app combining strength, muscle, conditioning, durability, mobility and flexibility.",
   "icons": [
     {
       "src": "icon-192.png",
