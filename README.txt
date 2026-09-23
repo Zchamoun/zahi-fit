@@ -1,30 +1,36 @@
-ZAHI FIT v2 — Android installation
+ZAHI FIT v2.1.0 — SECURITY & FOUNDATION RELEASE
 
-WHAT CHANGED
-- Branded Android app icon (192px + 512px)
-- Install-to-home-screen support
-- Standalone full-screen app experience
-- Offline app shell
-- "Ask ChatGPT PT" button
-- Copies current workout + recent history before opening the official ChatGPT Android app
-- Export PT handoff file
-- Import updated workout-plan JSON without losing history
+Security changes
+- Added Content Security Policy
+- Removed inline JavaScript and inline CSS
+- Secure DOM rendering for imported workout data
+- Strict workout-plan schema validation
+- Max plan file size
+- Numeric range validation
+- Text length validation
+- HTTPS-only demo links
+- YouTube allowlist for demo links
+- No OpenAI API key or password stored
+- No Android sensitive permissions requested
 
-IMPORTANT
-A PWA cannot install directly from a ZIP/file:// URL. It must be served from an HTTPS website.
-Once hosted:
-1. Open the site in Chrome on Android.
-2. Tap "Install Zahi Fit" inside the app, or Chrome menu -> Install app / Add to Home screen.
-3. Zahi Fit appears with its own icon and opens standalone like an app.
+Reliability changes
+- App version badge
+- Update detection banner
+- Improved service-worker lifecycle
+- Network-first HTML navigation
+- Existing local workout history remains compatible
+- Export history and PT handoff retained
 
-CHATGPT LINK
-The app uses the official ChatGPT Android package (com.openai.chatgpt) and falls back to chatgpt.com.
-The app DOES NOT contain your OpenAI password or API key.
+Deployment
+Upload/replace these files in the GitHub Pages repository root:
+- index.html
+- app.css
+- app.js
+- manifest.json
+- sw.js
+Keep the existing icon-192.png and icon-512.png.
 
-UPDATING THE PLAN
-- Export "PT file" from Settings and upload it to ChatGPT.
-- Ask ChatGPT to change the workout.
-- Import the returned plan JSON in Zahi Fit.
-This preserves workout history.
-
-To achieve automatic two-way updates without importing a file, the app would need a hosted backend plus an OpenAI API integration and authentication.
+After GitHub Pages redeploys:
+1. Open Zahi Fit.
+2. Close and reopen once if still on the old version.
+3. Confirm the header shows v2.1.0.
