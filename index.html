@@ -14,150 +14,204 @@
 </head>
 <body>
 <div class="app">
-  <header>
-    <div class="brand">
-      <img src="icon-192.png" alt="Zahi Fit">
-      <div>
-        <h1>Zahi Fit</h1>
-        <div class="sub">Medium–Advanced PT • strength • conditioning • mobility</div>
-      </div>
-      <div class="version" id="versionBadge">v2.2.1</div>
+<header>
+  <div class="brand">
+    <img src="icon-192.png" alt="Zahi Fit">
+    <div>
+      <h1>Zahi Fit</h1>
+      <div class="sub">Medium–Advanced PT • strength • conditioning • mobility</div>
     </div>
-  </header>
+    <div class="version" id="versionBadge">v2.3.0</div>
+  </div>
+</header>
 
-  <div id="updateBanner" class="update-banner hidden">
-    <span>A new Zahi Fit version is available.</span>
-    <button id="updateNowBtn" class="btn small">Update now</button>
+<div id="updateBanner" class="update-banner hidden">
+  <span>A new Zahi Fit version is available.</span>
+  <button id="updateNowBtn" class="btn small">Update now</button>
+</div>
+
+<main>
+<section id="home">
+  <div class="card hero">
+    <span class="pill">NEXT SESSION</span>
+    <h2 id="todayTitle"></h2>
+    <div class="meta" id="todayMeta"></div>
+    <div id="todayFocus" class="focusline"></div>
+    <div class="grid2 top-gap">
+      <button id="startTodayBtn" class="btn">Start workout</button>
+      <button id="askPtHomeBtn" class="btn blue">Ask ChatGPT PT</button>
+    </div>
   </div>
 
-  <main>
-    <section id="home">
-      <div class="card hero">
-        <span class="pill">NEXT SESSION</span>
-        <h2 id="todayTitle"></h2>
-        <div class="meta" id="todayMeta"></div>
-        <div id="todayFocus" class="focusline"></div>
-        <div class="grid2 top-gap">
-          <button id="startTodayBtn" class="btn">Start workout</button>
-          <button id="askPtHomeBtn" class="btn blue">Ask ChatGPT PT</button>
-        </div>
-      </div>
+  <div id="resumeCard" class="card hidden">
+    <div class="section-title">Workout in progress</div>
+    <div class="notice" id="resumeText"></div>
+    <button id="resumeBtn" class="btn top-gap">Resume workout</button>
+  </div>
 
-      <div id="resumeCard" class="card hidden">
-        <div class="section-title">Workout in progress</div>
-        <div class="notice" id="resumeText"></div>
-        <button id="resumeBtn" class="btn top-gap">Resume workout</button>
-      </div>
-
-      <div class="card">
-        <div class="section-title">This week</div>
-        <div class="statgrid">
-          <div class="stat"><b id="statSessions">0</b><span class="meta">sessions</span></div>
-          <div class="stat"><b id="statMinutes">0</b><span class="meta">minutes</span></div>
-          <div class="stat"><b id="statStreak">0</b><span class="meta">day streak</span></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="section-title">4-day medium–advanced program</div>
-        <div class="notice">Primary sessions are 70–85 min and combine mobility, strength, conditioning, durability and flexibility.</div>
-        <div id="rotation"></div>
-      </div>
-    </section>
-
-    <section id="session" class="hidden">
-      <div class="card session-head">
-        <div class="row">
-          <div>
-            <div class="meta">ACTIVE WORKOUT</div>
-            <h2 id="sessionTitle"></h2>
-          </div>
-          <div class="timer" id="timer">00:00</div>
-        </div>
-        <div class="progress"><div class="bar" id="bar"></div></div>
-        <div class="session-step">
-          <span id="exerciseCounter">Exercise 1 of 1</span>
-          <span id="completionCounter">0% complete</span>
-        </div>
-      </div>
-
-      <div id="activeExerciseCard" class="card"></div>
-
-      <div id="restCard" class="card rest-card hidden">
-        <div class="meta">REST TIMER</div>
-        <div id="restTimer" class="rest-timer">01:30</div>
-        <div class="grid3 top-gap">
-          <button id="restMinusBtn" class="btn secondary">−15s</button>
-          <button id="restSkipBtn" class="btn blue">Skip rest</button>
-          <button id="restPlusBtn" class="btn secondary">+15s</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="grid3">
-          <button id="prevExerciseBtn" class="btn secondary">← Previous</button>
-          <button id="skipExerciseBtn" class="btn secondary">Skip</button>
-          <button id="nextExerciseBtn" class="btn">Next →</button>
-        </div>
-        <div class="grid2 top-gap">
-          <button id="askPtSessionBtn" class="btn blue">Ask PT</button>
-          <button id="finishWorkoutBtn" class="btn danger">Finish workout</button>
-        </div>
-      </div>
-    </section>
-
-    <section id="history" class="hidden">
-      <div class="card">
-        <div class="section-title">Workout history</div>
-        <div id="historyList"></div>
-      </div>
-    </section>
-
-    <section id="guide" class="hidden">
-      <div class="card">
-        <div class="section-title">Training framework</div>
-        <div class="notice">
-          Each primary session follows: mobility warm-up → strength / hypertrophy → durability / muscular endurance → conditioning → flexibility cooldown.
-          Use controlled technique. Medium–advanced does not mean maximal effort.
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="section-title">ChatGPT PT connection</div>
-        <div class="notice">Zahi Fit copies your current exercise, workout state, and recent history before opening ChatGPT.</div>
-        <button id="askPtSettingsBtn" class="btn blue top-gap">Open ChatGPT PT</button>
-      </div>
-
-      <div class="card">
-        <div class="section-title">Secure plan import</div>
-        <div class="notice">Only import a Zahi Fit plan file you trust. The app validates structure, ranges, text length, file size, and demo URLs.</div>
-        <input type="file" id="planImport" accept=".json,application/json">
-      </div>
-
-      <div class="card">
-        <div class="section-title">Data</div>
-        <div class="grid2">
-          <button id="exportDataBtn" class="btn secondary">Export history</button>
-          <button id="exportPtBtn" class="btn secondary">Export PT file</button>
-        </div>
-        <button id="resetDataBtn" class="btn danger top-gap">Reset app data</button>
-      </div>
-
-      <div class="card">
-        <div class="section-title">Safety</div>
-        <div class="notice">Stop for chest pain, faintness, unusual shortness of breath, or sharp joint/back pain. Keep heavy compound work submaximal and avoid uncontrolled all-out conditioning.</div>
-      </div>
-    </section>
-  </main>
-
-  <nav class="tabs">
-    <div class="inner">
-      <button class="tab active" data-tab="home">Home</button>
-      <button class="tab" data-tab="session">Train</button>
-      <button class="tab" data-tab="history">History</button>
-      <button class="tab" data-tab="guide">PT / Settings</button>
+  <div class="card">
+    <div class="section-title">This week</div>
+    <div class="statgrid">
+      <div class="stat"><b id="statSessions">0</b><span class="meta">sessions</span></div>
+      <div class="stat"><b id="statMinutes">0</b><span class="meta">minutes</span></div>
+      <div class="stat"><b id="statStreak">0</b><span class="meta">day streak</span></div>
     </div>
-  </nav>
+  </div>
+
+  <div class="card">
+    <div class="section-title">4-day medium–advanced program</div>
+    <div class="notice">75–85 min sessions combining mobility, strength, hypertrophy, durability, conditioning and flexibility.</div>
+    <div id="rotation"></div>
+  </div>
+</section>
+
+<section id="readiness" class="hidden">
+  <div class="card">
+    <div class="section-title">Pre-workout check-in</div>
+    <div class="notice">This helps Zahi Fit adapt pacing and volume without changing the overall training plan.</div>
+
+    <div class="field-block">
+      <label>Energy today</label>
+      <div class="choice-row" id="energyChoices">
+        <button data-value="1">1 Low</button><button data-value="2">2</button><button data-value="3">3</button><button data-value="4">4</button><button data-value="5">5 High</button>
+      </div>
+    </div>
+
+    <div class="field-block">
+      <label>Soreness / fatigue</label>
+      <div class="choice-row" id="sorenessChoices">
+        <button data-value="1">1 Fresh</button><button data-value="2">2</button><button data-value="3">3</button><button data-value="4">4</button><button data-value="5">5 High</button>
+      </div>
+    </div>
+
+    <div class="field-block">
+      <label>Time available</label>
+      <div class="choice-row" id="timeChoices">
+        <button data-value="60">60 min</button><button data-value="75">75 min</button><button data-value="90">90 min</button>
+      </div>
+    </div>
+
+    <div id="readinessAdvice" class="advice-box">Select your status to generate today's guidance.</div>
+    <div class="grid2 top-gap">
+      <button id="cancelReadinessBtn" class="btn secondary">Cancel</button>
+      <button id="beginWorkoutBtn" class="btn">Begin workout</button>
+    </div>
+  </div>
+</section>
+
+<section id="session" class="hidden">
+  <div class="card session-head">
+    <div class="row">
+      <div>
+        <div class="meta">ACTIVE WORKOUT</div>
+        <h2 id="sessionTitle"></h2>
+      </div>
+      <div class="timer" id="timer">00:00</div>
+    </div>
+    <div class="progress"><div class="bar" id="bar"></div></div>
+    <div class="session-step">
+      <span id="exerciseCounter">Exercise 1 of 1</span>
+      <span id="completionCounter">0% complete</span>
+    </div>
+  </div>
+
+  <div id="activeExerciseCard" class="card"></div>
+
+  <div id="restCard" class="card rest-card hidden">
+    <div class="meta">REST TIMER</div>
+    <div id="restTimer" class="rest-timer">01:30</div>
+    <div class="grid3 top-gap">
+      <button id="restMinusBtn" class="btn secondary">−15s</button>
+      <button id="restSkipBtn" class="btn blue">Skip rest</button>
+      <button id="restPlusBtn" class="btn secondary">+15s</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="grid3">
+      <button id="prevExerciseBtn" class="btn secondary">← Previous</button>
+      <button id="skipExerciseBtn" class="btn secondary">Skip</button>
+      <button id="nextExerciseBtn" class="btn">Next →</button>
+    </div>
+    <div class="grid2 top-gap">
+      <button id="askPtSessionBtn" class="btn blue">Ask PT</button>
+      <button id="sessionMenuBtn" class="btn secondary">••• Session</button>
+    </div>
+  </div>
+</section>
+
+<section id="summary" class="hidden">
+  <div class="card">
+    <span class="pill">WORKOUT COMPLETE</span>
+    <h2 id="summaryTitle"></h2>
+    <div class="statgrid top-gap">
+      <div class="stat"><b id="summaryMinutes">0</b><span class="meta">minutes</span></div>
+      <div class="stat"><b id="summarySets">0</b><span class="meta">sets completed</span></div>
+      <div class="stat"><b id="summaryVolume">0</b><span class="meta">kg volume*</span></div>
+    </div>
+    <div class="notice top-gap">*Volume is calculated only where numeric weight and reps were entered.</div>
+  </div>
+  <div class="card">
+    <div class="section-title">Session review</div>
+    <div id="summaryReview"></div>
+    <button id="summaryDoneBtn" class="btn top-gap">Done</button>
+  </div>
+</section>
+
+<section id="history" class="hidden">
+  <div class="card"><div class="section-title">Workout history</div><div id="historyList"></div></div>
+</section>
+
+<section id="guide" class="hidden">
+  <div class="card">
+    <div class="section-title">PT Experience</div>
+    <div class="notice">Zahi Fit now keeps coaching cues, common mistakes, substitutions, progressive-overload guidance and session context inside the workout.</div>
+  </div>
+  <div class="card">
+    <div class="section-title">ChatGPT PT</div>
+    <div class="notice">The current exercise, readiness check, workout progress and recent performance are included in the handoff.</div>
+    <button id="askPtSettingsBtn" class="btn blue top-gap">Open ChatGPT PT</button>
+  </div>
+  <div class="card">
+    <div class="section-title">Secure plan import</div>
+    <input type="file" id="planImport" accept=".json,application/json">
+  </div>
+  <div class="card">
+    <div class="section-title">Data</div>
+    <div class="grid2"><button id="exportDataBtn" class="btn secondary">Export history</button><button id="exportPtBtn" class="btn secondary">Export PT file</button></div>
+    <button id="resetDataBtn" class="btn danger top-gap">Reset app data</button>
+  </div>
+</section>
+</main>
+
+<nav class="tabs">
+  <div class="inner">
+    <button class="tab active" data-tab="home">Home</button>
+    <button class="tab" data-tab="session">Train</button>
+    <button class="tab" data-tab="history">History</button>
+    <button class="tab" data-tab="guide">PT / Settings</button>
+  </div>
+</nav>
+</div>
+
+<div id="sessionSheet" class="sheet hidden">
+  <div class="sheet-card">
+    <div class="sheet-handle"></div>
+    <h3>Session options</h3>
+    <button id="replaceExerciseBtn" class="sheet-btn">Replace current exercise</button>
+    <button id="copyContextBtn" class="sheet-btn">Copy PT context</button>
+    <button id="finishWorkoutBtn" class="sheet-btn danger-text">Finish workout</button>
+    <button id="closeSheetBtn" class="sheet-btn">Cancel</button>
+  </div>
+</div>
+
+<div id="replaceSheet" class="sheet hidden">
+  <div class="sheet-card">
+    <div class="sheet-handle"></div>
+    <h3>Choose a substitute</h3>
+    <div id="replacementList"></div>
+    <button id="closeReplaceBtn" class="sheet-btn">Cancel</button>
+  </div>
 </div>
 
 <script src="app.js"></script>

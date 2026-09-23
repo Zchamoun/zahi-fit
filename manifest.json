@@ -7,7 +7,7 @@
   "display": "standalone",
   "background_color": "#0b1020",
   "theme_color": "#0b1020",
-  "description": "Medium-to-advanced personal PT app combining strength, muscle, conditioning, durability, mobility and flexibility.",
+  "description": "Medium-to-advanced PT app with in-workout coaching, progression, substitutions, conditioning, mobility and flexibility.",
   "icons": [
     {
       "src": "icon-192.png",

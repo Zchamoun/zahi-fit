@@ -1,52 +1,24 @@
-ZAHI FIT v2.2.1 — MEDIUM/ADVANCED WORKOUT EXPERIENCE
+ZAHI FIT v2.3.0 — PT EXPERIENCE
 
-Program design
-- 4 primary sessions
-- Approx. 75–85 minutes each
-- Medium-to-advanced training level
-- Each session includes:
-  1. Mobility warm-up
-  2. Strength / muscle-building work
-  3. Hypertrophy or power work
-  4. Durability / muscular endurance
-  5. Fat-loss conditioning
-  6. Flexibility / stretching cooldown
+Adds:
+- Pre-workout readiness check: energy, soreness, time available
+- In-app coaching cues and common mistakes for every built-in exercise
+- Progressive-overload suggestions using previous load and RPE
+- +/- 2.5 kg quick load controls
+- Exercise substitution workflow
+- Safer session menu: Finish Workout moved out of the main button row
+- Richer ChatGPT PT context
+- Workout completion summary
+- Estimated numeric training volume
+- v2.2.1 workout engine retained:
+  - exercise-by-exercise flow
+  - previous performance
+  - rest timer
+  - RPE
+  - persistent workout
+  - mobility / strength / durability / conditioning / flexibility program
+- v2.1 security controls retained
 
-Session A
-Posterior Strength + StairMaster
-
-Session B
-Upper Strength + Bike Engine
-
-Session C
-Full-Body Athletic Conditioning
-
-Session D
-Lower Muscle + Long StairMaster
-
-UX retained
-- Exercise-by-exercise training
-- Previous performance
-- Rest timer
-- RPE
-- Add/remove sets
-- Skip exercise
-- Persistent active workout
-- ChatGPT PT handoff
-- Secure import
-- CSP and v2.1 security hardening
-
-Deployment
-Replace/upload:
-- index.html
-- app.css
-- app.js
-- manifest.json
-- sw.js
-- README.txt
-
-Keep:
-- icon-192.png
-- icon-512.png
-
-After GitHub Pages deploys, reopen the installed app and confirm v2.2.1.
+Deploy by replacing:
+index.html, app.css, app.js, manifest.json, sw.js, README.txt
+Keep icon-192.png and icon-512.png.
