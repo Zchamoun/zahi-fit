@@ -1,0 +1,6 @@
+.track-head{display:grid;grid-template-columns:42px 1fr 50px;gap:8px;color:var(--muted);font-size:11px;margin-top:14px}
+.track-row-simple{display:grid;grid-template-columns:42px 1fr 50px;gap:8px;align-items:center;margin-top:8px}
+.track-head-cardio{display:grid;grid-template-columns:42px 1fr 1.4fr 50px;gap:8px;color:var(--muted);font-size:11px;margin-top:14px}
+.track-row-cardio{display:grid;grid-template-columns:42px 1fr 1.4fr 50px;gap:8px;align-items:center;margin-top:8px}
+.history-delete{margin-top:8px;background:transparent;border:1px solid #7f1d1d;color:#fca5a5;border-radius:9px;padding:7px 10px}
+@media(max-width:520px){.track-head-cardio,.track-row-cardio{grid-template-columns:34px 1fr 1.3fr 44px}}
