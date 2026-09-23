@@ -1,24 +1,45 @@
-ZAHI FIT v2.3.0 — PT EXPERIENCE
+ZAHI FIT v2.3.1 — ADAPTIVE PRESCRIPTION
 
-Adds:
-- Pre-workout readiness check: energy, soreness, time available
-- In-app coaching cues and common mistakes for every built-in exercise
-- Progressive-overload suggestions using previous load and RPE
-- +/- 2.5 kg quick load controls
-- Exercise substitution workflow
-- Safer session menu: Finish Workout moved out of the main button row
-- Richer ChatGPT PT context
-- Workout completion summary
-- Estimated numeric training volume
-- v2.2.1 workout engine retained:
-  - exercise-by-exercise flow
-  - previous performance
-  - rest timer
-  - RPE
-  - persistent workout
-  - mobility / strength / durability / conditioning / flexibility program
-- v2.1 security controls retained
+This release keeps all v2.3 PT Experience features and makes the readiness check actually modify the workout.
 
-Deploy by replacing:
-index.html, app.css, app.js, manifest.json, sw.js, README.txt
+Adaptive logic
+- Energy, soreness and available time now change the prescription.
+- 60-minute mode:
+  - one mobility block
+  - main strength movement
+  - one key accessory
+  - durability
+  - shortened conditioning
+  - one flexibility cooldown
+- 75-minute mode:
+  - keeps main training blocks
+  - trims secondary mobility/flexibility volume
+- 90-minute mode:
+  - full programmed session
+- Low energy or high soreness:
+  - reduced accessory volume
+  - fewer sets
+  - conservative progression guidance
+  - controlled conditioning
+- Progressive-load recommendations now respect readiness.
+- The active workout shows the applied adaptation and target duration.
+- PT / ChatGPT context includes readiness + actual adaptation.
+
+Retained from v2.3
+- in-app technique coaching
+- common mistakes
+- previous performance
+- progression guidance
+- +/-2.5 kg controls
+- exercise substitutions
+- automatic rest timer
+- RPE
+- safe session menu
+- workout summary
+- persistent workout
+- security controls
+
+Deployment:
+Replace index.html, app.js, sw.js and README.txt.
+app.css and manifest.json may also be uploaded unchanged for consistency.
 Keep icon-192.png and icon-512.png.

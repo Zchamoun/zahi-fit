@@ -1,6 +1,6 @@
 
 "use strict";
-const APP_VERSION="2.3.0",ACTIVE_KEY="activeWorkoutV230";
+const APP_VERSION="2.3.1",ACTIVE_KEY="activeWorkoutV230";
 const $=id=>document.getElementById(id);
 const MAX_IMPORT_BYTES=200000,MAX_SETS=12;
 
@@ -62,17 +62,176 @@ function renderHome(){const w=workouts[activeIndex];$("todayTitle").textContent=
 function streak(h){const ds=[...new Set(h.map(x=>new Date(x.date).toDateString()))];if(!ds.length)return 0;let n=0,d=new Date();for(let i=0;i<365;i++){if(ds.includes(d.toDateString()))n++;else if(i>0)break;d.setDate(d.getDate()-1)}return n}
 function openReadiness(i){pendingIndex=i;readiness={energy:null,soreness:null,time:null};document.querySelectorAll(".choice-row button").forEach(b=>b.classList.remove("active"));$("readinessAdvice").textContent="Select your status to generate today's guidance.";showTab("readiness")}
 function choice(container,key){$(container).querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{$(container).querySelectorAll("button").forEach(x=>x.classList.remove("active"));b.classList.add("active");readiness[key]=Number(b.dataset.value);updateAdvice()}))}
-function updateAdvice(){if(!readiness.energy||!readiness.soreness||!readiness.time)return;let msg="Standard session: keep main lifts around RPE 7–8 and complete the full planned work.";if(readiness.energy<=2||readiness.soreness>=4)msg="Reduced-load day: keep 3–4 reps in reserve, remove one accessory set if needed, and keep conditioning controlled.";else if(readiness.time===60)msg="60-minute mode: prioritize mobility, main strength, one accessory, conditioning and cooldown; skip lower-priority accessory work if needed.";$("readinessAdvice").textContent=msg}
+function readinessProfile(){
+  const lowEnergy = readiness.energy <= 2;
+  const highFatigue = readiness.soreness >= 4;
+  const moderateFatigue = readiness.soreness === 3;
+  const shortSession = readiness.time === 60;
+  const mediumSession = readiness.time === 75;
+
+  let mode = "full";
+  let label = "Full session";
+  let message = "Full session: complete the planned work at controlled RPE 7–8, keeping 1–3 reps in reserve on compound lifts.";
+
+  if (lowEnergy || highFatigue) {
+    mode = shortSession ? "recovery60" : "reduced";
+    label = "Reduced-load session";
+    message = "Reduced-load session: keep 3–4 reps in reserve, reduce accessory volume, and keep conditioning controlled.";
+  } else if (shortSession) {
+    mode = "time60";
+    label = "60-minute priority session";
+    message = "60-minute mode: keep the warm-up, main strength movement, one key accessory, durability, conditioning and cooldown.";
+  } else if (mediumSession || moderateFatigue) {
+    mode = "balanced75";
+    label = "Balanced session";
+    message = "Balanced session: keep the key lifts and conditioning, with slightly reduced accessory volume if needed.";
+  }
+
+  return {mode,label,message,lowEnergy,highFatigue,moderateFatigue,shortSession,mediumSession};
+}
+
+function updateAdvice(){
+  if(!readiness.energy||!readiness.soreness||!readiness.time)return;
+  const p=readinessProfile();
+  $("readinessAdvice").textContent=p.message;
+}
+
+function adaptExercise(ex, profile){
+  const x=clone(ex);
+
+  // Volume reduction rules.
+  if (profile.mode==="recovery60") {
+    if (["Strength","Hypertrophy","Power"].includes(x.block)) x.sets=Math.max(2,x.sets-1);
+    if (x.block==="Durability") x.sets=Math.max(2,x.sets-1);
+    if (x.block==="Conditioning") {
+      if (x.n.includes("StairMaster Steady State")) x.reps="15–20 min";
+      else if (x.n.includes("Intervals")) x.sets=Math.max(4,Math.min(x.sets,4));
+      else x.sets=Math.max(3,x.sets-2);
+    }
+  } else if (profile.mode==="reduced") {
+    if (["Hypertrophy","Durability"].includes(x.block)) x.sets=Math.max(2,x.sets-1);
+    if (x.block==="Conditioning" && x.sets>1) x.sets=Math.max(4,x.sets-1);
+  } else if (profile.mode==="time60") {
+    if (x.block==="Hypertrophy") x.sets=Math.max(2,x.sets-1);
+    if (x.block==="Conditioning") {
+      if (x.n.includes("StairMaster Steady State")) x.reps="18–20 min";
+      else if (x.sets>1) x.sets=Math.max(4,x.sets-1);
+    }
+  } else if (profile.mode==="balanced75") {
+    if (x.block==="Hypertrophy" && x.sets>3) x.sets=3;
+  }
+
+  return x;
+}
+
+function adaptWorkout(i){
+  const w=workouts[i];
+  const p=readinessProfile();
+  let selected=clone(w.exercises);
+
+  // Time-based prioritization: preserve one mobility, main strength, key accessory,
+  // durability, conditioning and one flexibility block.
+  if (readiness.time===60) {
+    const firstMob = selected.find(x=>x.block==="Mobility");
+    const strength = selected.find(x=>x.block==="Strength");
+    const accessory = selected.find(x=>["Hypertrophy","Power"].includes(x.block));
+    const durability = selected.find(x=>x.block==="Durability");
+    const conditioning = selected.find(x=>x.block==="Conditioning");
+    const flexibility = selected.find(x=>x.block==="Flexibility");
+    selected=[firstMob,strength,accessory,durability,conditioning,flexibility].filter(Boolean);
+  } else if (readiness.time===75) {
+    // Keep all key work, remove only one lower-priority mobility/flexibility item if present.
+    let removedMob=false, removedFlex=false;
+    selected=selected.filter(x=>{
+      if(x.block==="Mobility" && !removedMob){removedMob=true; return true}
+      if(x.block==="Mobility" && removedMob) return false;
+      if(x.block==="Flexibility" && !removedFlex){removedFlex=true; return true}
+      if(x.block==="Flexibility" && removedFlex) return false;
+      return true;
+    });
+  }
+
+  // Low readiness: remove one lower-priority accessory in addition to time rules.
+  if (p.lowEnergy || p.highFatigue) {
+    let removed=false;
+    selected=selected.filter(x=>{
+      if(!removed && x.block==="Hypertrophy"){removed=true; return false}
+      return true;
+    });
+  }
+
+  selected=selected.map(x=>adaptExercise(x,p));
+
+  return {
+    name:w.name,
+    duration:readiness.time,
+    focus:w.focus,
+    profile:p,
+    exercises:selected
+  };
+}
+
 function beginWorkout(){if(!readiness.energy||!readiness.soreness||!readiness.time){alert("Complete the readiness check first.");return}state=newState(pendingIndex);persist();activate()}
-function newState(i){const w=workouts[i];return{workoutIndex:i,workoutName:w.name,startTime:Date.now(),exerciseIndex:0,readiness:clone(readiness),exercises:w.exercises.map(ex=>({...clone(ex),skipped:false,rpe:null,sets:Array.from({length:ex.sets},()=>({w:"",r:"",done:false}))}))}}
+function newState(i){
+  const aw=adaptWorkout(i);
+  return{
+    workoutIndex:i,
+    workoutName:aw.name,
+    startTime:Date.now(),
+    exerciseIndex:0,
+    readiness:clone(readiness),
+    adaptation:{
+      mode:aw.profile.mode,
+      label:aw.profile.label,
+      message:aw.profile.message,
+      targetMinutes:aw.duration
+    },
+    exercises:aw.exercises.map(ex=>({
+      ...clone(ex),
+      skipped:false,
+      rpe:null,
+      sets:Array.from({length:ex.sets},()=>({w:"",r:"",done:false}))
+    }))
+  }
+}
 function persist(){if(state)localStorage.setItem(ACTIVE_KEY,JSON.stringify(state))}
 function loadState(set=true){try{const s=JSON.parse(localStorage.getItem(ACTIVE_KEY)||"null");if(!s||!Array.isArray(s.exercises))return null;if(set)state=s;return s}catch{return null}}
-function activate(){activeIndex=state.workoutIndex;$("sessionTitle").textContent=state.workoutName;clearInterval(timerInterval);timerInterval=setInterval(clock,1000);renderExercise();showTab("session",document.querySelector('[data-tab="session"]'))}
+function activate(){
+  activeIndex=state.workoutIndex;
+  $("sessionTitle").textContent=state.workoutName;
+  clearInterval(timerInterval);
+  timerInterval=setInterval(clock,1000);
+  renderExercise();
+  showTab("session",document.querySelector('[data-tab="session"]'));
+}
 function clock(){if(!state)return;const s=Math.floor((Date.now()-state.startTime)/1000);$("timer").textContent=`${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`}
 function previousFor(name){for(const rec of getHistory()){const d=(rec.details||[]).find(x=>x.exercise===name);if(d)return d}return null}
-function suggestion(ex,prev){if(!prev||!Array.isArray(prev.sets))return"First logged session — choose a technically comfortable load.";const vals=prev.sets.map(s=>parseFloat(s.w)).filter(Number.isFinite);if(!vals.length)return"Use the previous session as a technique reference; no numeric load was recorded.";const avg=vals.reduce((a,b)=>a+b,0)/vals.length;const rpe=Number(prev.rpe||8);if(rpe<=7)return`Suggested load: about ${(avg+2.5).toFixed(1)} kg if warm-up feels good.`;if(rpe>=9)return`Suggested load: around ${Math.max(0,avg-2.5).toFixed(1)} kg or repeat with fewer reps.`;return`Suggested load: repeat around ${avg.toFixed(1)} kg and aim for cleaner/more complete reps.`}
+function suggestion(ex,prev){
+  const reduced = state && state.adaptation && ["recovery60","reduced"].includes(state.adaptation.mode);
+  if(!prev||!Array.isArray(prev.sets)){
+    return reduced
+      ? "Reduced-load day — choose a technically easy load and keep 3–4 reps in reserve."
+      : "First logged session — choose a technically comfortable load.";
+  }
+  const vals=prev.sets.map(s=>parseFloat(s.w)).filter(Number.isFinite);
+  if(!vals.length) return reduced
+    ? "Use a conservative load today and prioritize clean technique."
+    : "Use the previous session as a technique reference; no numeric load was recorded.";
+  const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+  const rpe=Number(prev.rpe||8);
+
+  if(reduced) return `Reduced-load target: approximately ${Math.max(0,avg-2.5).toFixed(1)} kg, or keep the prior load with fewer reps.`;
+  if(rpe<=7)return`Suggested load: about ${(avg+2.5).toFixed(1)} kg if warm-up feels good.`;
+  if(rpe>=9)return`Suggested load: around ${Math.max(0,avg-2.5).toFixed(1)} kg or repeat with fewer reps.`;
+  return`Suggested load: repeat around ${avg.toFixed(1)} kg and aim for cleaner/more complete reps.`;
+}
 function completion(){let t=0,d=0;state.exercises.forEach(ex=>ex.sets.forEach(s=>{t++;if(s.done||ex.skipped)d++}));return t?Math.round(d/t*100):0}
 function renderExercise(){const ex=state.exercises[state.exerciseIndex],box=$("activeExerciseCard");box.replaceChildren();$("exerciseCounter").textContent=`Exercise ${state.exerciseIndex+1} of ${state.exercises.length}`;$("completionCounter").textContent=`${completion()}% complete`;$("bar").style.width=`${completion()}%`;$("prevExerciseBtn").disabled=state.exerciseIndex===0;$("nextExerciseBtn").disabled=state.exerciseIndex===state.exercises.length-1;
+if(state.adaptation){
+  const ad=node("div","suggestion-box");
+  ad.append(node("strong","",state.adaptation.label),node("div","meta",`${state.adaptation.message} Target session: ${state.adaptation.targetMinutes} min.`));
+  box.append(ad);
+}
 box.append(node("div","block-label",ex.block),node("div","exercise-title",ex.n),node("div","cue",ex.cue));
 const meta=node("div","exercise-meta");meta.append(node("span","chip",ex.block),node("span","chip",`${ex.sets.length} sets`),node("span","chip",`Target: ${ex.reps}`),node("span","chip",ex.rest?`Rest: ${ex.rest}s`:"Continuous"));box.append(meta);
 const cg=node("div","coach-grid"),how=node("div","coach-box"),mist=node("div","coach-box");how.append(node("b","","HOW TO DO IT"));let ul=node("ul");ex.how.forEach(x=>ul.append(node("li","",x)));how.append(ul);mist.append(node("b","","COMMON MISTAKES"));ul=node("ul");ex.mistakes.forEach(x=>ul.append(node("li","",x)));mist.append(ul);cg.append(how,mist);box.append(cg);
@@ -93,7 +252,14 @@ function replacements(){const ex=state.exercises[state.exerciseIndex],box=$("rep
 function calcVolume(details){let v=0;details.forEach(d=>(d.sets||[]).forEach(s=>{const w=parseFloat(s.w),r=parseFloat(s.r);if(Number.isFinite(w)&&Number.isFinite(r))v+=w*r}));return Math.round(v)}
 function finish(){if(!state)return;if(!confirm("Finish and save this workout?"))return;stopRest();clearInterval(timerInterval);const mins=Math.max(1,Math.round((Date.now()-state.startTime)/60000)),details=state.exercises.map(ex=>({exercise:ex.n,block:ex.block,sets:ex.sets.map(s=>({w:s.w,r:s.r})),done:ex.sets.map(s=>s.done),skipped:ex.skipped,rpe:ex.rpe})),rec={date:new Date().toISOString(),workout:state.workoutName,minutes:mins,readiness:state.readiness,details};const h=getHistory();h.unshift(rec);localStorage.setItem("history",JSON.stringify(h.slice(0,500)));activeIndex=(state.workoutIndex+1)%workouts.length;localStorage.setItem("nextWorkout",String(activeIndex));localStorage.removeItem(ACTIVE_KEY);state=null;$("summaryTitle").textContent=rec.workout;$("summaryMinutes").textContent=mins;$("summarySets").textContent=details.reduce((a,d)=>a+d.done.filter(Boolean).length,0);$("summaryVolume").textContent=calcVolume(details);const review=$("summaryReview");review.replaceChildren();details.filter(d=>d.rpe).forEach(d=>review.append(node("div","history-item",`${d.exercise} • RPE ${d.rpe}`)));if(!review.children.length)review.append(node("div","meta","No RPE values were logged."));showTab("summary")}
 function renderHistory(){const box=$("historyList");box.replaceChildren();const h=getHistory();if(!h.length){box.append(node("div","meta","No workouts logged yet."));return}h.forEach(x=>{const it=node("div","history-item"),s=node("div","history-summary");s.append(node("b","",x.workout),node("span","meta",`${x.minutes} min`));it.append(s,node("div","history-detail",new Date(x.date).toLocaleString()));box.append(it)})}
-function context(){return JSON.stringify({app:`Zahi Fit v${APP_VERSION}`,readiness:state?state.readiness:null,current:state?state.exercises[state.exerciseIndex]:workouts[activeIndex],progress:state?completion():0,recent:getHistory().slice(0,5)},null,2)}
+function context(){return JSON.stringify({
+  app:`Zahi Fit v${APP_VERSION}`,
+  readiness:state?state.readiness:null,
+  adaptation:state?state.adaptation:null,
+  current:state?state.exercises[state.exerciseIndex]:workouts[activeIndex],
+  progress:state?completion():0,
+  recent:getHistory().slice(0,5)
+},null,2)}
 async function askPT(){try{await navigator.clipboard.writeText(`Act as my PT using this Zahi Fit context:\n${context()}`)}catch{}window.location.href="intent://chatgpt.com/#Intent;scheme=https;package=com.openai.chatgpt;S.browser_fallback_url=https%3A%2F%2Fchatgpt.com%2F;end"}
 function download(name,data){const b=new Blob([data],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500)}
 function setupSW(){if(!("serviceWorker"in navigator))return;navigator.serviceWorker.register("sw.js").then(reg=>{reg.update().catch(()=>{});reg.addEventListener("updatefound",()=>{const nw=reg.installing;if(!nw)return;nw.addEventListener("statechange",()=>{if(nw.state==="installed"&&navigator.serviceWorker.controller){pendingWorker=nw;$("updateBanner").classList.remove("hidden")}})})});navigator.serviceWorker.addEventListener("controllerchange",()=>location.reload());$("updateNowBtn").onclick=()=>pendingWorker?pendingWorker.postMessage({type:"SKIP_WAITING"}):location.reload()}
