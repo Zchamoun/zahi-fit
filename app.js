@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.3.0";
+const VERSION = "4.4.0";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -13,7 +13,7 @@ const K = {
   rate:"zahiFitVoiceRateV312", voiceName:"zahiFitVoiceNameV313",
   chat:"zahiFitPTConversationV26", onboarded:"zahiFitOnboardedV4",
   lang:"zahiFitVoiceLangV41", gender:"zahiFitVoiceGenderV41", engine:"zahiFitVoiceEngineV41",
-  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43"
+  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44"
 };
 
 /* ---------- tiny helpers ---------- */
@@ -545,6 +545,7 @@ function renderToday(m){
   const w = workouts[nextIndex], nm = splitName(w.name), week = lastDays(7), hs = getHistory();
   m.append(h("div", {class:"topline"}, h("div", null, h("div", {class:"hello"}, greeting()), h("div", {class:"wordmark"}, "Zahi Fit")),
     h("button", {class:"avatar", "aria-label":"Profile", onclick:() => go("profile")}, personal ? (personal.sex === "female" ? "♀" : "♂") : "•")));
+  if(!state) m.append(installCard("today"));
   if(state){
     const ex = curEx();
     m.append(h("button", {class:"resume", onclick:() => go("workout")},
@@ -1320,6 +1321,9 @@ function renderProfile(m){
       Object.values(K).forEach(k => localStorage.removeItem(k)); location.reload();
     }}, "Erase all data")));
 
+  m.append(isStandalone()
+    ? h("section", {class:"panel section"}, h("h2", null, "App"), h("div", {class:"spread"}, h("span", null, "Installed on this phone"), h("button", {class:"btn idle sm", disabled:true}, "Installed ✓")))
+    : installCard("profile"));
   m.append(h("p", {class:"tiny faint section center"}, `Zahi Fit ${VERSION}`, " · ",
     h("button", {class:"linkish", onclick:() => { checkForUpdate(true); }}, "Check for update")));
 }
@@ -1380,6 +1384,55 @@ function setupSW(){
     });
     document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") reg.update().catch(() => {}); });
   }).catch(() => {});
+}
+
+/* ---------- Install on phone (Add to Home screen) ---------- */
+let installPrompt = null;
+const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOS = () => /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault(); installPrompt = e;
+  if(view === "today" || view === "profile") go(view);   // show the Install button now that it can work
+});
+window.addEventListener("appinstalled", () => {
+  installPrompt = null; toast("Zahi Fit is installed. Open it from your home screen.");
+  if(view === "today" || view === "profile") go(view);
+});
+async function installApp(){
+  if(installPrompt){
+    installPrompt.prompt();
+    const choice = await installPrompt.userChoice.catch(() => null);
+    installPrompt = null;
+    if(choice && choice.outcome === "accepted") toast("Installing Zahi Fit…");
+    if(view === "today" || view === "profile") go(view);
+    return;
+  }
+  installHelp();
+}
+function installHelp(){
+  sheet(card => {
+    const ol = (...items) => h("ol", {class:"howto"}, items.map(x => h("li", null, x)));
+    card.append(h("h2", null, "Install Zahi Fit on your phone"),
+      h("p", {class:"small muted"}, "It installs straight from this page — no app store needed. It then opens full screen from its own icon and works offline."),
+      isIOS()
+        ? h("div", null, h("h3", {class:"section"}, "iPhone (Safari)"),
+            ol("Open this page in Safari (not Chrome).", "Tap the Share button (square with an arrow).", "Scroll down and tap Add to Home Screen, then Add."))
+        : h("div", null, h("h3", {class:"section"}, "Android (Chrome)"),
+            ol("Tap the ⋮ menu at the top right of Chrome.", "Tap Install app (or Add to Home screen › Install).", "Confirm. The Zahi Fit icon appears on your home screen."),
+            h("p", {class:"tiny muted"}, "Don't see Install app? Zahi Fit may already be installed — check your home screen and app drawer for the Zahi Fit icon.")),
+      h("p", {class:"small muted section"}, "Your workouts, plan and settings stay on this phone; the installed app uses the same data."));
+  });
+}
+function installCard(where){
+  if(isStandalone()) return null;
+  if(where === "today" && localStorage.getItem(K.installHide) === "1") return null;
+  const ready = !!installPrompt;
+  return h("section", {class:"install-card" + (where === "profile" ? " section" : "")},
+    h("img", {src:"icon-192.png", alt:"", width:"48", height:"48"}),
+    h("div", {class:"install-copy"}, h("b", null, "Install Zahi Fit"), h("span", null, ready ? "Add it to your home screen. Opens full screen, works offline." : "Add it to your home screen in a few taps.")),
+    h("div", {class:"install-actions"},
+      h("button", {class:"btn primary sm", onclick:installApp}, ready ? "Install" : "How to install"),
+      where === "today" ? h("button", {class:"linkish tiny", onclick:() => { localStorage.setItem(K.installHide, "1"); go("today"); }}, "Not now") : null));
 }
 
 /* ---------- boot ---------- */

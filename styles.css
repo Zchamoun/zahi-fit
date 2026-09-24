@@ -362,3 +362,11 @@ details.tech[open] summary::after{content:"–"}
 .btn.idle{background:var(--soft);color:var(--muted)}
 .btn.primary:disabled,.btn.idle:disabled{background:var(--soft);color:var(--faint);opacity:1}
 .apply-row .btn:disabled{background:var(--card)}
+
+/* v4.4: install card */
+.install-card{display:grid;grid-template-columns:48px 1fr;gap:12px;align-items:center;background:var(--card);border-radius:var(--r-lg);padding:14px;box-shadow:var(--shadow);margin-bottom:14px;border:2px solid var(--teal-soft)}
+.install-card img{width:48px;height:48px;border-radius:12px}
+.install-copy b{display:block;font-weight:800}
+.install-copy span{font-size:13.5px;color:var(--muted)}
+.install-actions{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.install-actions .btn{flex:1}
