@@ -1,7 +1,7 @@
-const CACHE = 'zahi-fit-v3.1.3';
+const CACHE = 'zahi-fit-v3.2.0';
 const ASSETS = [
   './','./index.html','./app.css','./app.js','./v24.css','./v24.js',
-  './v25.css','./v25.js','./v251.js','./v27.css','./v27.js','./v271.js',
+  './v25.css','./v25.js','./v251.js','./v27.css','./v27.js','./v32.js',
   './v31.css',
   './manifest.json','./icon-192.png','./icon-512.png',
   './pt-assets/world-stretch-step1.jpg','./pt-assets/world-stretch-step2.jpg','./pt-assets/world-stretch-step3.jpg',
