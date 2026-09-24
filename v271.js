@@ -1,9 +1,9 @@
 "use strict";
 /* Zahi Fit v3.1.0 — Premium Exercise Coaching UI */
 (() => {
-  const VERSION = "v3.1.0";
-  const RATE_KEY = "zahiFitVoiceRateV31";
-  const MODE_KEY = "zahiFitVoiceModeV31";
+  const VERSION = "v3.1.1";
+  const RATE_KEY = "zahiFitVoiceRateV311";
+  const MODE_KEY = "zahiFitVoiceModeV311";
 
   let currentDemo = null;
   let currentExercise = null;
@@ -537,6 +537,17 @@
     return icons[type]||"•";
   }
 
+
+  function loadV311Styles(){
+    const id="zf311-css";
+    if(document.getElementById(id)) return;
+    const link=document.createElement("link");
+    link.id=id;
+    link.rel="stylesheet";
+    link.href="./v31.css?v=3.1.1";
+    document.head.appendChild(link);
+  }
+
   function addStyles(){
     if(document.getElementById("zf30-style")) return;
     const s=document.createElement("style");s.id="zf30-style";s.textContent=`
@@ -673,7 +684,7 @@
             <select class="zf31-speed" data-action="speed" aria-label="Voice speed"><option value="0.70">0.8x</option><option value="0.82">1.0x</option><option value="0.94">1.2x</option></select>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center">
+        <div class="zf311-voicebody">
           <div class="zf30-controls">
             <button class="play" data-action="play">▶ Play Step</button>
             <button data-action="pause">❚❚ Pause</button>
@@ -751,6 +762,7 @@
     else openDemo(ex,false);
   },true);
 
+  loadV311Styles();
   addStyles();
   wireExerciseRender();
 
