@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.1.0";
+const VERSION = "4.1.1";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -336,36 +336,47 @@ async function sha(text){
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,"0")).join("").slice(0,32);
 }
-async function naturalClip(text, translate){
+const inflight = new Map();   // one download per clip, even if play and prefetch ask at the same time
+async function naturalClip(text, translate, patient){
   const payload = {text, lang:voice.lang, voice:voice.gender, translate:!!translate && voice.lang === "de"};
-  const key = new Request(`${location.origin}${location.pathname.replace(/[^/]*$/, "")}__voice/${await sha(JSON.stringify(payload))}.mp3`);
+  const id = await sha(JSON.stringify(payload));
+  const key = new Request(`${location.origin}${location.pathname.replace(/[^/]*$/, "")}__voice/${id}.mp3`);
   let cache = null;
   try{ cache = await caches.open(VOICE_CACHE); const hit = await cache.match(key); if(hit) return await hit.blob(); }catch{}
-  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), translate && voice.lang === "de" ? 9000 : 6000);
-  try{
-    const res = await fetch(VOICE_ENDPOINT, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload), signal:ctl.signal});
-    if(!res.ok || !/audio/.test(res.headers.get("Content-Type") || "")) throw new Error(`voice ${res.status}`);
-    const blob = await res.blob();
-    if(cache){
-      cache.put(key, new Response(blob, {headers:{"Content-Type":"audio/mpeg"}})).catch(() => {});
-      cache.keys().then(ks => { if(ks.length > 500) ks.slice(0, 100).forEach(k => cache.delete(k)); }).catch(() => {});
-    }
-    return blob;
-  }finally{ clearTimeout(t); }
+  if(!inflight.has(id)){
+    inflight.set(id, (async () => {
+      // Long instructions (and German, which is translated first) can take 5–15 s to generate the first time.
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 35000);
+      try{
+        const res = await fetch(VOICE_ENDPOINT, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload), signal:ctl.signal});
+        if(!res.ok || !/audio/.test(res.headers.get("Content-Type") || "")) throw new Error(`voice ${res.status}`);
+        const blob = await res.blob();
+        if(cache){
+          cache.put(key, new Response(blob, {headers:{"Content-Type":"audio/mpeg"}})).catch(() => {});
+          cache.keys().then(ks => { if(ks.length > 500) ks.slice(0, 100).forEach(k => cache.delete(k)); }).catch(() => {});
+        }
+        return blob;
+      }finally{ clearTimeout(t); inflight.delete(id); }
+    })());
+  }
+  // Short workout cues shouldn't keep you waiting; guide narration waits for the natural voice.
+  const wait = patient ? 35000 : 12000;
+  return Promise.race([inflight.get(id), new Promise((_, rej) => setTimeout(() => rej(new Error("voice timeout")), wait))]);
 }
-function prefetchVoice(text, translate){
-  if(voice.engine !== "natural" || voice.mode === "off" || navigator.onLine === false) return;
-  naturalClip(text, translate).catch(() => {});
+function prefetchVoice(text, translate, force){
+  if(voice.engine !== "natural" || (voice.mode === "off" && !force) || navigator.onLine === false) return Promise.resolve();
+  return naturalClip(text, translate, true).catch(() => {});
 }
-/* speak(text, {force, onend, translate, onready}) — force plays even when workout voice cues are off. */
-function speak(text, {force=false, onend, translate=false, onready} = {}){
+let fellBackNoticed = false;
+/* speak(text, {force, onend, translate, onready, patient}) — force plays even when workout voice cues are off. */
+function speak(text, {force=false, onend, translate=false, onready, patient=false} = {}){
   if(voice.mode === "off" && !force) return;
   hush();
   const token = ++speechToken;
   // Offline, German instructions can't be translated, so the phone reads the English original in an English voice.
   const fallback = () => { if(token !== speechToken) return; onready && onready(); speakDevice(text, token, onend, translate && voice.lang === "de" ? "en" : voice.lang); };
   if(voice.engine !== "natural" || navigator.onLine === false){ fallback(); return; }
-  naturalClip(text, translate).then(blob => {
+  naturalClip(text, translate, patient).then(blob => {
     if(token !== speechToken) return;
     if(playerUrl) URL.revokeObjectURL(playerUrl);
     playerUrl = URL.createObjectURL(blob);
@@ -375,7 +386,11 @@ function speak(text, {force=false, onend, translate=false, onready} = {}){
     player.onended = () => { if(token === speechToken && onend) onend(); };
     onready && onready();
     return player.play();
-  }).catch(err => { console.warn("Natural voice unavailable, using phone voice", err); fallback(); });
+  }).catch(err => {
+    console.warn("Natural voice unavailable, using phone voice", err);
+    if(token === speechToken && !fellBackNoticed){ fellBackNoticed = true; toast("The natural voice didn't respond, so your phone's voice is reading this."); }
+    fallback();
+  });
 }
 function hush(){ speechToken++; try{ player.pause(); }catch{} try{ speechSynthesis.cancel(); }catch{} }
 
@@ -962,8 +977,7 @@ function openGuide(ex, talk){
   const lineFor = k => phrase().step(k+1, steps[k].title, steps[k].text, steps[k].cue);
   const say = (then) => {
     playBtn.textContent = voice.lang === "de" && voice.engine === "natural" ? "Preparing voice…" : "Preparing…";
-    speak(lineFor(i), {force:true, translate:true, onend:then, onready:() => { playBtn.textContent = "Stop"; }});
-    if(i < steps.length - 1) prefetchVoice(lineFor(i+1), true);   // next step ready before it's needed
+    speak(lineFor(i), {force:true, translate:true, patient:true, onend:then, onready:() => { playBtn.textContent = "Stop"; }});
   };
   const paint = () => {
     stage.replaceChildren(stepImage(fam, i, `${ex.n}, step ${i+1}: ${steps[i].title}`), h("span", {class:"stage-step"}, `${i+1} / ${steps.length}`));
@@ -1003,7 +1017,8 @@ function openGuide(ex, talk){
     h("div", {class:"guide-bar"}, prev, playBtn, next));
   document.body.append(ov);
   paint();
-  prefetchVoice(lineFor(0), true);
+  // Prepare all five steps in the background, in order, so narration flows without waiting.
+  steps.reduce((p, _, k) => p.then(() => ov.isConnected ? prefetchVoice(lineFor(k), true, true) : null), Promise.resolve());
   if(talk) setTimeout(playAll, 250);
 }
 
@@ -1085,7 +1100,7 @@ function renderProfile(m){
       pickRow("Voice quality", [["natural","Natural"],["device","Phone voice"]], voice.engine, v => { voice.engine = v; localStorage.setItem(K.engine, v); }),
       h("p", {class:"tiny muted"}, voice.engine === "natural"
         ? "Natural uses a lifelike AI-generated voice (online). Each phrase downloads once and is then saved on your phone, so rest cues work in the gym without signal. If it can't connect, your phone's voice takes over."
-        : "Uses your phone's built-in voice. Works fully offline; how natural it sounds depends on your phone. On Android you can add better voices in Settings › Text-to-speech."),
+        : "Uses your phone's built-in voice and works fully offline, but Male, Female and Neutral only change it if your phone has those voices installed, and exercise instructions stay in English. Choose Natural for the lifelike voices and German instructions."),
       h("div", {class:"section"}),
       h("div", {class:"setting"}, h("span", null, "During workouts"), mode),
       h("div", {class:"setting"}, h("span", null, "Rest timer sounds"), snd),
