@@ -1,0 +1,389 @@
+{
+  "version": "3.4.0",
+  "asset_root": "pt-assets-v34",
+  "format": "jpg",
+  "aspect_ratio": "16:9",
+  "recommended_resolution": "1536x864",
+  "families": {
+    "hip90": {
+      "exercise": "Hip 90/90 Flow",
+      "files": [
+        "hip90-step1.jpg",
+        "hip90-step2.jpg",
+        "hip90-step3.jpg",
+        "hip90-step4.jpg",
+        "hip90-step5.jpg"
+      ]
+    },
+    "worldStretch": {
+      "exercise": "World's Greatest Stretch",
+      "files": [
+        "worldStretch-step1.jpg",
+        "worldStretch-step2.jpg",
+        "worldStretch-step3.jpg",
+        "worldStretch-step4.jpg",
+        "worldStretch-step5.jpg"
+      ]
+    },
+    "deadlift": {
+      "exercise": "Deadlift",
+      "files": [
+        "deadlift-step1.jpg",
+        "deadlift-step2.jpg",
+        "deadlift-step3.jpg",
+        "deadlift-step4.jpg",
+        "deadlift-step5.jpg"
+      ]
+    },
+    "splitSquat": {
+      "exercise": "Bulgarian Split Squat",
+      "files": [
+        "splitSquat-step1.jpg",
+        "splitSquat-step2.jpg",
+        "splitSquat-step3.jpg",
+        "splitSquat-step4.jpg",
+        "splitSquat-step5.jpg"
+      ]
+    },
+    "hinge": {
+      "exercise": "Dumbbell Romanian Deadlift",
+      "files": [
+        "hinge-step1.jpg",
+        "hinge-step2.jpg",
+        "hinge-step3.jpg",
+        "hinge-step4.jpg",
+        "hinge-step5.jpg"
+      ]
+    },
+    "carry": {
+      "exercise": "Farmer Carry",
+      "files": [
+        "carry-step1.jpg",
+        "carry-step2.jpg",
+        "carry-step3.jpg",
+        "carry-step4.jpg",
+        "carry-step5.jpg"
+      ]
+    },
+    "stairs": {
+      "exercise": "StairMaster",
+      "files": [
+        "stairs-step1.jpg",
+        "stairs-step2.jpg",
+        "stairs-step3.jpg",
+        "stairs-step4.jpg",
+        "stairs-step5.jpg"
+      ]
+    },
+    "couch": {
+      "exercise": "Couch Stretch",
+      "files": [
+        "couch-step1.jpg",
+        "couch-step2.jpg",
+        "couch-step3.jpg",
+        "couch-step4.jpg",
+        "couch-step5.jpg"
+      ]
+    },
+    "supineHam": {
+      "exercise": "Supine Hamstring Stretch",
+      "files": [
+        "supineHam-step1.jpg",
+        "supineHam-step2.jpg",
+        "supineHam-step3.jpg",
+        "supineHam-step4.jpg",
+        "supineHam-step5.jpg"
+      ]
+    },
+    "shoulderBand": {
+      "exercise": "Band Shoulder Dislocates",
+      "files": [
+        "shoulderBand-step1.jpg",
+        "shoulderBand-step2.jpg",
+        "shoulderBand-step3.jpg",
+        "shoulderBand-step4.jpg",
+        "shoulderBand-step5.jpg"
+      ]
+    },
+    "thoracic": {
+      "exercise": "Thoracic Rotation",
+      "files": [
+        "thoracic-step1.jpg",
+        "thoracic-step2.jpg",
+        "thoracic-step3.jpg",
+        "thoracic-step4.jpg",
+        "thoracic-step5.jpg"
+      ]
+    },
+    "bench": {
+      "exercise": "Bench Press",
+      "files": [
+        "bench-step1.jpg",
+        "bench-step2.jpg",
+        "bench-step3.jpg",
+        "bench-step4.jpg",
+        "bench-step5.jpg"
+      ]
+    },
+    "chestRow": {
+      "exercise": "Chest-Supported Row",
+      "files": [
+        "chestRow-step1.jpg",
+        "chestRow-step2.jpg",
+        "chestRow-step3.jpg",
+        "chestRow-step4.jpg",
+        "chestRow-step5.jpg"
+      ]
+    },
+    "shoulderPress": {
+      "exercise": "Dumbbell Shoulder Press",
+      "files": [
+        "shoulderPress-step1.jpg",
+        "shoulderPress-step2.jpg",
+        "shoulderPress-step3.jpg",
+        "shoulderPress-step4.jpg",
+        "shoulderPress-step5.jpg"
+      ]
+    },
+    "pulldown": {
+      "exercise": "Lat Pulldown",
+      "files": [
+        "pulldown-step1.jpg",
+        "pulldown-step2.jpg",
+        "pulldown-step3.jpg",
+        "pulldown-step4.jpg",
+        "pulldown-step5.jpg"
+      ]
+    },
+    "renegade": {
+      "exercise": "Push-up + Renegade Row",
+      "files": [
+        "renegade-step1.jpg",
+        "renegade-step2.jpg",
+        "renegade-step3.jpg",
+        "renegade-step4.jpg",
+        "renegade-step5.jpg"
+      ]
+    },
+    "bike": {
+      "exercise": "Bike Intervals",
+      "files": [
+        "bike-step1.jpg",
+        "bike-step2.jpg",
+        "bike-step3.jpg",
+        "bike-step4.jpg",
+        "bike-step5.jpg"
+      ]
+    },
+    "doorPec": {
+      "exercise": "Doorway Pec Stretch",
+      "files": [
+        "doorPec-step1.jpg",
+        "doorPec-step2.jpg",
+        "doorPec-step3.jpg",
+        "doorPec-step4.jpg",
+        "doorPec-step5.jpg"
+      ]
+    },
+    "childLat": {
+      "exercise": "Child's Pose Lat Stretch",
+      "files": [
+        "childLat-step1.jpg",
+        "childLat-step2.jpg",
+        "childLat-step3.jpg",
+        "childLat-step4.jpg",
+        "childLat-step5.jpg"
+      ]
+    },
+    "deepSquat": {
+      "exercise": "Deep Squat Pry",
+      "files": [
+        "deepSquat-step1.jpg",
+        "deepSquat-step2.jpg",
+        "deepSquat-step3.jpg",
+        "deepSquat-step4.jpg",
+        "deepSquat-step5.jpg"
+      ]
+    },
+    "inchworm": {
+      "exercise": "Inchworm to Down Dog",
+      "files": [
+        "inchworm-step1.jpg",
+        "inchworm-step2.jpg",
+        "inchworm-step3.jpg",
+        "inchworm-step4.jpg",
+        "inchworm-step5.jpg"
+      ]
+    },
+    "frontSquat": {
+      "exercise": "Front Squat",
+      "files": [
+        "frontSquat-step1.jpg",
+        "frontSquat-step2.jpg",
+        "frontSquat-step3.jpg",
+        "frontSquat-step4.jpg",
+        "frontSquat-step5.jpg"
+      ]
+    },
+    "inclinePress": {
+      "exercise": "Incline Dumbbell Press",
+      "files": [
+        "inclinePress-step1.jpg",
+        "inclinePress-step2.jpg",
+        "inclinePress-step3.jpg",
+        "inclinePress-step4.jpg",
+        "inclinePress-step5.jpg"
+      ]
+    },
+    "singleRow": {
+      "exercise": "Single-Arm Cable Row",
+      "files": [
+        "singleRow-step1.jpg",
+        "singleRow-step2.jpg",
+        "singleRow-step3.jpg",
+        "singleRow-step4.jpg",
+        "singleRow-step5.jpg"
+      ]
+    },
+    "swing": {
+      "exercise": "Kettlebell Swing",
+      "files": [
+        "swing-step1.jpg",
+        "swing-step2.jpg",
+        "swing-step3.jpg",
+        "swing-step4.jpg",
+        "swing-step5.jpg"
+      ]
+    },
+    "circuit": {
+      "exercise": "CrossFit Engine Circuit",
+      "files": [
+        "circuit-step1.jpg",
+        "circuit-step2.jpg",
+        "circuit-step3.jpg",
+        "circuit-step4.jpg",
+        "circuit-step5.jpg"
+      ]
+    },
+    "pallof": {
+      "exercise": "Pallof Press",
+      "files": [
+        "pallof-step1.jpg",
+        "pallof-step2.jpg",
+        "pallof-step3.jpg",
+        "pallof-step4.jpg",
+        "pallof-step5.jpg"
+      ]
+    },
+    "hipFlexRotate": {
+      "exercise": "Hip Flexor + Rotation Stretch",
+      "files": [
+        "hipFlexRotate-step1.jpg",
+        "hipFlexRotate-step2.jpg",
+        "hipFlexRotate-step3.jpg",
+        "hipFlexRotate-step4.jpg",
+        "hipFlexRotate-step5.jpg"
+      ]
+    },
+    "figure4": {
+      "exercise": "Figure-4 Glute Stretch",
+      "files": [
+        "figure4-step1.jpg",
+        "figure4-step2.jpg",
+        "figure4-step3.jpg",
+        "figure4-step4.jpg",
+        "figure4-step5.jpg"
+      ]
+    },
+    "ankleRock": {
+      "exercise": "Ankle Dorsiflexion Rock",
+      "files": [
+        "ankleRock-step1.jpg",
+        "ankleRock-step2.jpg",
+        "ankleRock-step3.jpg",
+        "ankleRock-step4.jpg",
+        "ankleRock-step5.jpg"
+      ]
+    },
+    "cossack": {
+      "exercise": "Cossack Squat",
+      "files": [
+        "cossack-step1.jpg",
+        "cossack-step2.jpg",
+        "cossack-step3.jpg",
+        "cossack-step4.jpg",
+        "cossack-step5.jpg"
+      ]
+    },
+    "legPress": {
+      "exercise": "Leg Press",
+      "files": [
+        "legPress-step1.jpg",
+        "legPress-step2.jpg",
+        "legPress-step3.jpg",
+        "legPress-step4.jpg",
+        "legPress-step5.jpg"
+      ]
+    },
+    "walkingLunge": {
+      "exercise": "Walking Dumbbell Lunge",
+      "files": [
+        "walkingLunge-step1.jpg",
+        "walkingLunge-step2.jpg",
+        "walkingLunge-step3.jpg",
+        "walkingLunge-step4.jpg",
+        "walkingLunge-step5.jpg"
+      ]
+    },
+    "hipThrust": {
+      "exercise": "Hip Thrust",
+      "files": [
+        "hipThrust-step1.jpg",
+        "hipThrust-step2.jpg",
+        "hipThrust-step3.jpg",
+        "hipThrust-step4.jpg",
+        "hipThrust-step5.jpg"
+      ]
+    },
+    "hamCurl": {
+      "exercise": "Hamstring Curl",
+      "files": [
+        "hamCurl-step1.jpg",
+        "hamCurl-step2.jpg",
+        "hamCurl-step3.jpg",
+        "hamCurl-step4.jpg",
+        "hamCurl-step5.jpg"
+      ]
+    },
+    "stepDown": {
+      "exercise": "Step-Down Control",
+      "files": [
+        "stepDown-step1.jpg",
+        "stepDown-step2.jpg",
+        "stepDown-step3.jpg",
+        "stepDown-step4.jpg",
+        "stepDown-step5.jpg"
+      ]
+    },
+    "adductor": {
+      "exercise": "Adductor Rockback Stretch",
+      "files": [
+        "adductor-step1.jpg",
+        "adductor-step2.jpg",
+        "adductor-step3.jpg",
+        "adductor-step4.jpg",
+        "adductor-step5.jpg"
+      ]
+    },
+    "calfWall": {
+      "exercise": "Calf Wall Stretch",
+      "files": [
+        "calfWall-step1.jpg",
+        "calfWall-step2.jpg",
+        "calfWall-step3.jpg",
+        "calfWall-step4.jpg",
+        "calfWall-step5.jpg"
+      ]
+    }
+  }
+}
