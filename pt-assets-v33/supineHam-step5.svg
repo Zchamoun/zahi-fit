@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 470" width="760" height="470" role="img" aria-label="Hold and switch exercise demonstration">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#263746"/><stop offset=".55" stop-color="#162231"/><stop offset="1" stop-color="#09131f"/></linearGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d89a73"/><stop offset="1" stop-color="#9e654c"/></linearGradient>
+    <linearGradient id="shirt" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1d2d3f"/><stop offset="1" stop-color="#0d141c"/></linearGradient>
+    <linearGradient id="shorts" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#202f3e"/><stop offset="1" stop-color="#10161d"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity=".42"/></filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="8" refY="6" orient="auto"><path d="M0,0 L0,12 L10,6 z" fill="#21c7ff"/></marker>
+  </defs>
+  <rect width="760" height="470" rx="24" fill="url(#bg)"/>
+  <ellipse cx="390" cy="405" rx="230" ry="28" fill="#000" opacity=".26"/>
+  <path d="M20 405 H740" stroke="#6a7f92" stroke-width="3" opacity=".38"/>
+  
+  <g><line x1="400" y1="295" x2="500" y2="330" stroke="url(#shorts)" stroke-width="35" stroke-linecap="round"/><line x1="500" y1="330" x2="565" y2="390" stroke="url(#skin)" stroke-width="28" stroke-linecap="round"/><line x1="440" y1="295" x2="445" y2="190" stroke="url(#shorts)" stroke-width="35" stroke-linecap="round"/><line x1="445" y1="190" x2="430" y2="65" stroke="url(#skin)" stroke-width="28" stroke-linecap="round"/><path d="M 547 384 q 16 0 27 6 q 8 7 -2 12 h -34 q -9 -2 -4 -9z" fill="#f3f7fb" stroke="#8da0b3" stroke-width="2"/><path d="M 412 59 q 16 0 27 6 q 8 7 -2 12 h -34 q -9 -2 -4 -9z" fill="#f3f7fb" stroke="#8da0b3" stroke-width="2"/><path d="M 270 295 Q 365 250 386 295 Q 420 313 454 295 Q 475 250 330 285 Z" fill="url(#shirt)" stroke="#34485c" stroke-width="2"/><line x1="270" y1="295" x2="300" y2="335" stroke="url(#skin)" stroke-width="27" stroke-linecap="round"/><line x1="300" y1="335" x2="330" y2="350" stroke="url(#skin)" stroke-width="22" stroke-linecap="round"/><line x1="330" y1="285" x2="365" y2="335" stroke="url(#skin)" stroke-width="27" stroke-linecap="round"/><line x1="365" y1="335" x2="405" y2="350" stroke="url(#skin)" stroke-width="22" stroke-linecap="round"/><circle cx="330" cy="350" r="12" fill="#d89a73"/><circle cx="405" cy="350" r="12" fill="#d89a73"/><ellipse cx="220" cy="300" rx="31" ry="37" fill="url(#skin)"/><path d="M191 290 Q210 252 250 284 Q230 268 191 290" fill="#11161c"/><path d="M225 306 q18 7 20 23" fill="none" stroke="#3d251f" stroke-width="5" opacity=".7"/></g>
+  <path d="M440 300 Q458 212.5 440 165" fill="none" stroke="#21c7ff" stroke-width="5" stroke-linecap="round" marker-end="url(#arrow)" opacity=".9"/>
+  </svg>
