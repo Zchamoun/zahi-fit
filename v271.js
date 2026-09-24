@@ -1,9 +1,9 @@
 "use strict";
 /* Zahi Fit v3.1.0 — Premium Exercise Coaching UI */
 (() => {
-  const VERSION = "v3.1.1";
-  const RATE_KEY = "zahiFitVoiceRateV311";
-  const MODE_KEY = "zahiFitVoiceModeV311";
+  const VERSION = "v3.1.2";
+  const RATE_KEY = "zahiFitVoiceRateV312";
+  const MODE_KEY = "zahiFitVoiceModeV312";
 
   let currentDemo = null;
   let currentExercise = null;
@@ -637,13 +637,13 @@
       <header class="zf31-appbar">
         <div class="zf30-brand"><div class="zf30-logo">ZF</div><div><b>Zahi Fit</b><small>Your Personal PT</small></div></div>
         <nav class="zf31-topnav" aria-label="Zahi Fit navigation">
-          <button class="zf31-navbtn"><span class="ico">${navIcon("home")}</span><span>Home</span></button>
-          <button class="zf31-navbtn active"><span class="ico">${navIcon("train")}</span><span>Train</span></button>
-          <button class="zf31-navbtn"><span class="ico">${navIcon("history")}</span><span>History</span></button>
-          <button class="zf31-navbtn"><span class="ico">${navIcon("ai")}</span><span>AI Coach</span></button>
-          <button class="zf31-navbtn"><span class="ico">${navIcon("more")}</span><span>More</span></button>
+          <button class="zf31-navbtn" data-nav="home"><span class="ico">${navIcon("home")}</span><span>Home</span></button>
+          <button class="zf31-navbtn active" data-nav="session"><span class="ico">${navIcon("train")}</span><span>Train</span></button>
+          <button class="zf31-navbtn" data-nav="history"><span class="ico">${navIcon("history")}</span><span>History</span></button>
+          <button class="zf31-navbtn" data-nav="ai"><span class="ico">${navIcon("ai")}</span><span>AI Coach</span></button>
+          <button class="zf31-navbtn" data-nav="guide"><span class="ico">${navIcon("more")}</span><span>More</span></button>
         </nav>
-        <button class="zf31-profile" aria-label="Profile">ZC</button>
+        <button class="zf31-profile" data-nav="guide" aria-label="Profile">ZC</button>
       </header>
 
       <div class="zf31-backrow">
@@ -707,8 +707,26 @@
     if(autoplay)setTimeout(playVoice,240);
   }
 
+  function routeFromCoach(target, root){
+    stopVoice();
+    root?.remove();
+    const tabMap={home:"home",session:"session",history:"history",guide:"guide"};
+    if(target==="ai"){
+      const ai=document.getElementById("askPtSessionBtn") || document.querySelector("[data-ask-pt], .ask-pt, .btn.blue");
+      if(ai){ setTimeout(()=>ai.click(),80); return; }
+      target="guide";
+    }
+    const tab=tabMap[target]||"home";
+    const el=document.querySelector(`.tab[data-tab="${tab}"]`);
+    if(el){ setTimeout(()=>el.click(),80); return; }
+    const fallback=document.querySelector(`[data-tab="${tab}"]`);
+    if(fallback)setTimeout(()=>fallback.click(),80);
+  }
+
   function bindDemoEvents(root){
     root.addEventListener("click",e=>{
+      const nav=e.target.closest("[data-nav]");
+      if(nav){routeFromCoach(nav.dataset.nav,root);return}
       const stepBtn=e.target.closest("[data-step]");
       if(stepBtn){stopVoice();currentStep=Number(stepBtn.dataset.step);renderDemo();return}
       const a=e.target.closest("[data-action]");if(!a)return;
