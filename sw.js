@@ -1,4 +1,4 @@
-const CACHE = 'zahi-fit-v3.1.2';
+const CACHE = 'zahi-fit-v3.1.3';
 const ASSETS = [
   './','./index.html','./app.css','./app.js','./v24.css','./v24.js',
   './v25.css','./v25.js','./v251.js','./v27.css','./v27.js','./v271.js',

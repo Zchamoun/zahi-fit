@@ -1,7 +1,7 @@
 "use strict";
 /* Zahi Fit v3.1.0 — Premium Exercise Coaching UI */
 (() => {
-  const VERSION = "v3.1.2";
+  const VERSION = "v3.1.3";
   const RATE_KEY = "zahiFitVoiceRateV312";
   const MODE_KEY = "zahiFitVoiceModeV312";
 
@@ -10,6 +10,7 @@
   let currentStep = 0;
   let voiceRate = Number(localStorage.getItem(RATE_KEY) || "0.82");
   let voiceMode = localStorage.getItem(MODE_KEY) || "full";
+  let voiceName = localStorage.getItem(VOICE_KEY) || "";
   let utterance = null;
   let paused = false;
 
@@ -569,12 +570,32 @@
 `;document.head.appendChild(s);
   }
 
+  function coachVoices(){
+    if(!("speechSynthesis" in window))return [];
+    const all=speechSynthesis.getVoices()||[];
+    const english=all.filter(v=>/^en([-_]|$)/i.test(v.lang||""));
+    return (english.length?english:all).sort((a,b)=>{
+      const score=v=>/Google|Samsung|Microsoft|Natural|Neural|Enhanced|Premium/i.test(v.name||"")?0:1;
+      return score(a)-score(b)||(a.name||"").localeCompare(b.name||"");
+    });
+  }
   function bestVoice(){
-    const voices=speechSynthesis.getVoices();
-    return voices.find(v=>/Google.*English|Samsung.*English|Microsoft.*English/i.test(v.name))
-      || voices.find(v=>/^en-(GB|US)/i.test(v.lang))
-      || voices.find(v=>/^en/i.test(v.lang))
+    const voices=coachVoices();
+    return voices.find(v=>v.name===voiceName)
+      || voices.find(v=>/Google.*English|Samsung.*English|Microsoft.*English|Natural|Neural|Enhanced/i.test(v.name))
       || voices[0];
+  }
+  function populateVoiceSelect(root){
+    const sel=root?.querySelector("[data-action='voice-select']");if(!sel)return;
+    const voices=coachVoices();
+    if(!voices.length){sel.innerHTML='<option value="">Device default voice</option>';return;}
+    const selected=voices.find(v=>v.name===voiceName)||bestVoice()||voices[0];
+    voiceName=selected?.name||"";
+    if(voiceName)localStorage.setItem(VOICE_KEY,voiceName);
+    const preferred=voices.slice(0,8);
+    if(selected&&!preferred.some(v=>v.name===selected.name))preferred.unshift(selected);
+    sel.innerHTML=preferred.map((v,i)=>`<option value="${esc(v.name)}">${i===0?"Smooth Coach — ":""}${esc(v.name)} (${esc(v.lang||"")})</option>`).join("");
+    sel.value=voiceName;
   }
   function stopVoice(){
     try{speechSynthesis.cancel()}catch(e){}
@@ -662,25 +683,15 @@
         </div>
       </section>
 
-      <section class="zf30-grid">
+      <section class="zf30-stage">
         <div class="zf30-visual"></div>
-        <aside class="zf30-copy">
-          <div class="zf30-kicker">Instructions</div><h2></h2>
-          <div class="zf30-list"></div>
-          <div class="zf30-tip"></div>
-          <div class="zf30-warn"></div>
-        </aside>
-      </section>
-
-      <section class="zf30-thumbs">
-        ${currentDemo.steps.map((s,i)=>`<button class="zf30-thumb" data-step="${i}"><div class="pic"></div><strong><span>${i+1}</span>${esc(s.title)}</strong></button>`).join("")}
       </section>
 
       <section class="zf30-voice">
         <div class="zf30-voicehead">
           <div class="zf30-vtitle"><div class="icon">🔊</div><div><b>Voice Coach</b><small>Step-by-step guidance with clear timing.</small></div></div>
           <div class="zf30-options">
-            <select aria-label="Voice style"><option>Smooth Coach (Recommended)</option></select>
+            <select data-action="voice-select" aria-label="Coach voice"><option>Loading coach voices…</option></select>
             <select class="zf31-speed" data-action="speed" aria-label="Voice speed"><option value="0.70">0.8x</option><option value="0.82">1.0x</option><option value="0.94">1.2x</option></select>
           </div>
         </div>
@@ -695,12 +706,25 @@
         </div>
       </section>
 
+      <section class="zf30-thumbs">
+        ${currentDemo.steps.map((s,i)=>`<button class="zf30-thumb" data-step="${i}"><div class="pic"></div><strong><span>${i+1}</span>${esc(s.title)}</strong></button>`).join("")}
+      </section>
+
+      <aside class="zf30-copy">
+        <div class="zf30-kicker">Instructions</div><h2></h2>
+        <div class="zf30-list"></div>
+        <div class="zf30-tip"></div>
+        <div class="zf30-warn"></div>
+      </aside>
+
       <section class="zf30-bottomnav">
         <button data-action="prev">← Previous Step</button>
         <button class="next" data-action="next">Next Step →</button>
       </section>
     </div>`;
     document.body.appendChild(root);
+    populateVoiceSelect(root);
+    if("speechSynthesis" in window) speechSynthesis.onvoiceschanged=()=>populateVoiceSelect(root);
     root.querySelector("[data-action='speed']").value=String(voiceRate);
     root.querySelectorAll("[data-mode]").forEach(b=>b.classList.toggle("active",b.dataset.mode===voiceMode));
     bindDemoEvents(root);renderDemo();
@@ -742,6 +766,10 @@
         else{stopVoice();root.remove()}
       }
     });
+    root.querySelector("[data-action='voice-select']")?.addEventListener("change",e=>{
+      voiceName=e.target.value||"";localStorage.setItem(VOICE_KEY,voiceName);
+      if(utterance)playVoice();
+    });
     root.querySelector("[data-action='speed']").addEventListener("change",e=>{
       voiceRate=Number(e.target.value);localStorage.setItem(RATE_KEY,String(voiceRate));
       if(utterance)playVoice();
@@ -757,7 +785,7 @@
     box.querySelectorAll(".v27-demo,.zf29-launch,.zf30-launch").forEach(x=>x.remove());
     const old=box.querySelector(".demo-link");if(old)old.style.display="none";
     const launch=document.createElement("div");launch.className="zf30-launch";
-    launch.innerHTML=`<button class="visual" data-zf30="visual">▣ Open Visual PT</button><button class="voice" data-zf30="voice">🔊 Open Voice Coach</button>`;
+    launch.innerHTML=`<button class="visual" data-zf30="visual"><span class="zf-launch-icon">▶</span><span>Open Visual PT</span></button><button class="voice" data-zf30="voice"><span class="zf-launch-icon">🔊</span><span>Open Voice Coach</span></button>`;
     const coach=box.querySelector(".coach-grid");
     if(coach)box.insertBefore(launch,coach);else box.append(launch);
   }
