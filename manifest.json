@@ -5,21 +5,27 @@
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0b1020",
-  "theme_color": "#0b1020",
-  "description": "Personalized medium-to-advanced PT app with embedded AI coaching, age/sex profile context, rest audio, voice coaching and in-app visual exercise demonstrations.",
+  "background_color": "#f4f5f3",
+  "theme_color": "#f4f5f3",
+  "description": "Personal PT: adaptive sessions, fast set logging, photo technique guides, voice coaching and an AI coach.",
   "icons": [
     {
       "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

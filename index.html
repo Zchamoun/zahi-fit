@@ -3,105 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b1020">
+  <meta name="theme-color" content="#f4f5f3">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://zahi-fit-pt.chamounzahi.workers.dev; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';">
+        content="default-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'self'; connect-src 'self' https://zahi-fit-pt.chamounzahi.workers.dev; object-src 'none'; base-uri 'self'; form-action 'self';">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="app.css">
-  <link rel="stylesheet" href="v24.css">
-  <link rel="stylesheet" href="v25.css">
-  <link rel="stylesheet" href="v27.css">
-  <link rel="stylesheet" href="v31.css">
+  <link rel="preload" href="fonts/nunito-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css">
   <title>Zahi Fit</title>
 </head>
 <body>
-<div class="app">
-<header>
-  <div class="brand">
-    <img src="icon-192.png" alt="Zahi Fit">
-    <div>
-      <h1>Zahi Fit</h1>
-      <div class="sub">Medium–Advanced PT • strength • conditioning • mobility</div>
-    </div>
-    <div class="version" id="versionBadge">v3.4.0</div>
+<main id="view" class="app"></main>
+<nav class="tabs" aria-label="Main">
+  <div class="inner">
+    <button class="tab" data-tab="today"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Today</button>
+    <button class="tab" data-tab="history"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7v5l3 2"/></svg>History</button>
+    <button class="tab" data-tab="coach"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 10h8M8 13h5"/></svg>Coach</button>
+    <button class="tab" data-tab="profile"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Profile</button>
   </div>
-</header>
-
-<div id="updateBanner" class="update-banner hidden">
-  <span>A new Zahi Fit version is available.</span>
-  <button id="updateNowBtn" class="btn small">Update now</button>
-</div>
-
-<main>
-<section id="home">
-  <div class="card hero">
-    <span class="pill">NEXT SESSION</span>
-    <h2 id="todayTitle"></h2>
-    <div class="meta" id="todayMeta"></div>
-    <div id="todayFocus" class="focusline"></div>
-    <div class="grid2 top-gap">
-      <button id="startTodayBtn" class="btn">Start workout</button>
-      <button id="askPtHomeBtn" class="btn blue">Ask Zahi Fit PT</button>
-    </div>
-  </div>
-
-  <div id="resumeCard" class="card hidden">
-    <div class="section-title">Workout in progress</div>
-    <div class="notice" id="resumeText"></div>
-    <button id="resumeBtn" class="btn top-gap">Resume workout</button>
-  </div>
-
-  <div class="card">
-    <div class="section-title">This week</div>
-    <div class="statgrid">
-      <div class="stat"><b id="statSessions">0</b><span class="meta">sessions</span></div>
-      <div class="stat"><b id="statMinutes">0</b><span class="meta">minutes</span></div>
-      <div class="stat"><b id="statStreak">0</b><span class="meta">day streak</span></div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="section-title">4-day medium–advanced program</div>
-    <div class="notice">75–85 min sessions combining mobility, strength, hypertrophy, durability, conditioning and flexibility.</div>
-    <div id="rotation"></div>
-  </div>
-</section>
-
-<section id="readiness" class="hidden">
-  <div class="card">
-    <div class="section-title">Pre-workout check-in</div>
-    <div class="notice">This helps Zahi Fit adapt pacing and volume without changing the overall training plan.</div>
-    <div class="field-block"><label>Energy today</label><div class="choice-row" id="energyChoices"><button data-value="1">1 Low</button><button data-value="2">2</button><button data-value="3">3</button><button data-value="4">4</button><button data-value="5">5 High</button></div></div>
-    <div class="field-block"><label>Soreness / fatigue</label><div class="choice-row" id="sorenessChoices"><button data-value="1">1 Fresh</button><button data-value="2">2</button><button data-value="3">3</button><button data-value="4">4</button><button data-value="5">5 High</button></div></div>
-    <div class="field-block"><label>Time available</label><div class="choice-row" id="timeChoices"><button data-value="60">60 min</button><button data-value="75">75 min</button><button data-value="90">90 min</button></div></div>
-    <div id="readinessAdvice" class="advice-box">Select your status to generate today's guidance.</div>
-    <div class="grid2 top-gap"><button id="cancelReadinessBtn" class="btn secondary">Cancel</button><button id="beginWorkoutBtn" class="btn">Begin workout</button></div>
-  </div>
-</section>
-
-<section id="session" class="hidden">
-  <div class="card session-head"><div class="row"><div><div class="meta">ACTIVE WORKOUT</div><h2 id="sessionTitle"></h2></div><div class="timer" id="timer">00:00</div></div><div class="progress"><div class="bar" id="bar"></div></div><div class="session-step"><span id="exerciseCounter">Exercise 1 of 1</span><span id="completionCounter">0% complete</span></div></div>
-  <div id="activeExerciseCard" class="card"></div>
-  <div id="restCard" class="card rest-card hidden"><div class="meta">REST TIMER</div><div id="restTimer" class="rest-timer">01:30</div><div class="grid3 top-gap"><button id="restMinusBtn" class="btn secondary">−15s</button><button id="restSkipBtn" class="btn blue">Skip rest</button><button id="restPlusBtn" class="btn secondary">+15s</button></div></div>
-  <div class="card"><div class="grid3"><button id="prevExerciseBtn" class="btn secondary">← Previous</button><button id="skipExerciseBtn" class="btn secondary">Skip</button><button id="nextExerciseBtn" class="btn">Next →</button></div><div class="grid2 top-gap"><button id="askPtSessionBtn" class="btn blue">Ask PT</button><button id="sessionMenuBtn" class="btn secondary">••• Session</button></div></div>
-</section>
-
-<section id="summary" class="hidden"><div class="card"><span class="pill">WORKOUT COMPLETE</span><h2 id="summaryTitle"></h2><div class="statgrid top-gap"><div class="stat"><b id="summaryMinutes">0</b><span class="meta">minutes</span></div><div class="stat"><b id="summarySets">0</b><span class="meta">sets completed</span></div><div class="stat"><b id="summaryVolume">0</b><span class="meta">kg volume*</span></div></div><div class="notice top-gap">*Volume is calculated only where numeric weight and reps were entered.</div></div><div class="card"><div class="section-title">Session review</div><div id="summaryReview"></div><button id="summaryDoneBtn" class="btn top-gap">Done</button></div></section>
-<section id="history" class="hidden"><div class="card"><div class="section-title">Workout history</div><div id="historyList"></div></div></section>
-<section id="guide" class="hidden"><div class="card"><div class="section-title">PT Experience</div><div class="notice">Zahi Fit keeps coaching cues, common mistakes, substitutions, progressive-overload guidance and session context inside the workout.</div></div><div class="card"><div class="section-title">Zahi Fit AI PT</div><div class="notice">Ask questions and receive the answer directly inside Zahi Fit. Your current exercise, readiness, workout progress, goals and recent performance are included automatically.</div><button id="askPtSettingsBtn" class="btn blue top-gap">Open Zahi Fit PT</button></div><div class="card"><div class="section-title">Secure plan import</div><input type="file" id="planImport" accept=".json,application/json"></div><div class="card"><div class="section-title">Data</div><div class="grid2"><button id="exportDataBtn" class="btn secondary">Export history</button><button id="exportPtBtn" class="btn secondary">Export PT file</button></div><button id="resetDataBtn" class="btn danger top-gap">Reset app data</button></div></section>
-</main>
-<nav class="tabs"><div class="inner"><button class="tab active" data-tab="home">Home</button><button class="tab" data-tab="session">Train</button><button class="tab" data-tab="history">History</button><button class="tab" data-tab="guide">PT / Settings</button></div></nav>
-</div>
-<div id="sessionSheet" class="sheet hidden"><div class="sheet-card"><div class="sheet-handle"></div><h3>Session options</h3><button id="replaceExerciseBtn" class="sheet-btn">Replace current exercise</button><button id="copyContextBtn" class="sheet-btn">Copy PT context</button><button id="finishWorkoutBtn" class="sheet-btn">Finish &amp; save workout</button><button id="discardWorkoutBtn" class="sheet-btn danger-text">Discard workout</button><button id="closeSheetBtn" class="sheet-btn">Cancel</button></div></div>
-<div id="replaceSheet" class="sheet hidden"><div class="sheet-card"><div class="sheet-handle"></div><h3>Choose a substitute</h3><div id="replacementList"></div><button id="closeReplaceBtn" class="sheet-btn">Cancel</button></div></div>
+</nav>
+<noscript><p>Zahi Fit needs JavaScript to run.</p></noscript>
+<script src="data.js"></script>
 <script src="app.js"></script>
-<script src="v24.js"></script>
-<script src="v25.js"></script>
-<script src="v251.js"></script>
-<script src="v27.js"></script>
-<script src="v33.js"></script>
-<script src="v34.js"></script>
 </body>
 </html>
