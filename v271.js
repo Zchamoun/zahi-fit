@@ -1,9 +1,9 @@
 "use strict";
-/* Zahi Fit v3.0.0 — Professional Guided PT Experience */
+/* Zahi Fit v3.1.0 — Premium Exercise Coaching UI */
 (() => {
-  const VERSION = "v3.0.0";
-  const RATE_KEY = "zahiFitVoiceRateV30";
-  const MODE_KEY = "zahiFitVoiceModeV30";
+  const VERSION = "v3.1.0";
+  const RATE_KEY = "zahiFitVoiceRateV31";
+  const MODE_KEY = "zahiFitVoiceModeV31";
 
   let currentDemo = null;
   let currentExercise = null;
@@ -506,21 +506,55 @@
     return "";
   }
 
+
+  function photoAssetFor(family, idx){
+    if(family!=="worldStretch") return null;
+    return `./pt-assets/world-stretch-step${idx+1}.jpg`;
+  }
+
+  function demoVisualHtml(ex, idx, thumb=false){
+    const family=familyFor(ex);
+    const asset=photoAssetFor(family, idx);
+    const step=currentDemo?.steps?.[idx] || makeDemo(ex).steps[idx];
+    if(asset){
+      if(thumb) return `<img class="zf31-photo zf31-photo-thumb" src="${asset}" alt="${esc(ex.n)} — ${esc(step.title)}">`;
+      return `<div class="zf31-photo-wrap">
+        <img class="zf31-photo" src="${asset}" alt="${esc(ex.n)} — ${esc(step.title)}">
+        <span class="zf31-step-badge">STEP ${idx+1} OF 5</span>
+        <div class="zf31-photo-title">${esc(step.title)}</div>
+        <div class="zf31-callout zf31-callout-a">${esc(step.cue || "Keep a stable, controlled position")}</div>
+        <div class="zf31-callout zf31-callout-b">${esc(currentDemo?.feel || feelFor(family))}</div>
+      </div>`;
+    }
+    return `<div class="zf31-photo-wrap zf31-illustration">
+      ${trainerSvg(family,idx,step.title,[step.cue,currentDemo?.feel||feelFor(family)],thumb)}
+      ${thumb?"":`<span class="zf31-step-badge">STEP ${idx+1} OF 5</span><div class="zf31-photo-title">${esc(step.title)}</div>`}
+    </div>`;
+  }
+
+  function navIcon(type){
+    const icons={home:"⌂",train:"🏋",history:"◷",ai:"◉",more:"•••"};
+    return icons[type]||"•";
+  }
+
   function addStyles(){
     if(document.getElementById("zf30-style")) return;
     const s=document.createElement("style");s.id="zf30-style";s.textContent=`
-#zf30{position:fixed;inset:0;z-index:1000000;background:#07111f;color:#eef6ff;overflow:auto;font-family:inherit}
-#zf30 *{box-sizing:border-box}.zf30-shell{max-width:1200px;margin:auto;min-height:100%;padding:14px 18px 118px}
-.zf30-top{display:grid;grid-template-columns:220px 1fr 54px;gap:18px;align-items:center;padding:12px 0 16px;border-bottom:1px solid #24364d;position:sticky;top:0;background:#07111ff5;backdrop-filter:blur(10px);z-index:8}
-.zf30-brand{display:flex;align-items:center;gap:10px}.zf30-logo{width:48px;height:48px;border:2px solid #28d69b;border-radius:12px;display:grid;place-items:center;color:#4bc9f6;font-weight:900}.zf30-brand b{font-size:23px}.zf30-context{display:flex;align-items:center;gap:12px;justify-content:flex-end}.zf30-context b{font-size:18px}.zf30-progress{width:260px;height:7px;background:#1d3048;border-radius:99px;overflow:hidden}.zf30-progress span{display:block;height:100%;background:#23b8ef;border-radius:99px}.zf30-close{height:44px;width:44px;border-radius:12px;border:1px solid #3b516d;background:#101f33;color:#fff;font-size:26px}
-.zf30-exhead{padding:18px 0 12px}.zf30-exhead h1{margin:0;font-size:34px}.zf30-exhead p{margin:6px 0 0;color:#9fb3cb;font-size:16px}.zf30-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:11px}.zf30-chip{padding:8px 12px;border-radius:999px;border:1px solid #304a68;background:#0d1b2d;color:#dbe7f4;font-size:13px}
-.zf30-grid{display:grid;grid-template-columns:150px minmax(0,1.25fr) minmax(310px,.75fr);gap:12px;align-items:stretch}.zf30-rail,.zf30-copy,.zf30-visual{border:1px solid #263b56;background:#0b1829;border-radius:20px}.zf30-rail{padding:12px}.zf30-rail button{width:100%;display:grid;grid-template-columns:34px 1fr;gap:8px;align-items:center;text-align:left;border:0;border-left:3px solid #2c4059;background:transparent;color:#9eb1c7;padding:12px 6px;min-height:72px}.zf30-rail button.active{color:#eef8ff;border-left-color:#28b8f1;background:#0d2138;border-radius:0 10px 10px 0}.zf30-rail .n{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#14263c;border:1px solid #38526f;font-weight:800}.zf30-rail button.active .n{background:#0d8ef7;border-color:#42c8ff}.zf30-rail small{font-size:11px;line-height:1.2}
-.zf30-visual{padding:10px;display:grid;align-items:center;background:linear-gradient(145deg,#101d2d,#07111f)}.zf30-svg{display:block;width:100%;height:auto}.zf30-copy{padding:20px}.zf30-kicker{color:#33bdf3;font-weight:800;margin-bottom:7px}.zf30-copy h2{font-size:28px;margin:0 0 16px}.zf30-list{display:grid;gap:12px}.zf30-item{display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:start;color:#dce7f4;line-height:1.45}.zf30-item .num{width:28px;height:28px;border-radius:50%;background:#0b8ef7;display:grid;place-items:center;font-weight:800}.zf30-tip{margin-top:14px;padding:13px;border-radius:14px;background:#09271d;border:1px solid #1d7650}.zf30-tip b{color:#48e28f}.zf30-warn{margin-top:10px;padding:13px;border-radius:14px;background:#24171a;border:1px solid #7e3a3f}.zf30-warn b{color:#ff7b74}.zf30-warn ul{margin:8px 0 0;padding-left:19px}.zf30-warn li{margin:6px 0;color:#f0d5d5}
-.zf30-thumbs{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:12px 0}.zf30-thumb{border:2px solid #283f5b;background:#0a1728;border-radius:14px;padding:5px;color:#d8e5f4;text-align:left;overflow:hidden}.zf30-thumb.active{border-color:#2ebcf3;box-shadow:0 0 0 2px #2ebcf332}.zf30-thumb .pic{height:105px;border-radius:10px;overflow:hidden;background:#111c2b}.zf30-thumb strong{display:block;padding:7px 5px 4px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.zf30-thumb strong span{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#0b8ef7;margin-right:5px}
-.zf30-voice{position:sticky;bottom:7px;z-index:10;background:#0a1829f7;border:1px solid #304a68;border-radius:18px;padding:13px;box-shadow:0 14px 44px #0008}.zf30-voicehead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.zf30-vtitle{display:flex;align-items:center;gap:10px}.zf30-vtitle .icon{font-size:27px}.zf30-vtitle b{font-size:18px}.zf30-vtitle small{display:block;color:#96aac2}.zf30-options{display:flex;gap:8px;align-items:center}.zf30-options select{height:42px;border-radius:10px;border:1px solid #39536f;background:#102039;color:#fff;padding:0 10px}.zf30-mode{display:flex;border:1px solid #39536f;border-radius:10px;overflow:hidden}.zf30-mode button{border:0;background:#0d1c30;color:#cbd9e8;padding:10px 12px}.zf30-mode button.active{background:#20b5ef;color:#061019;font-weight:800}
-.zf30-controls{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:8px}.zf30-controls button{height:48px;border-radius:12px;border:1px solid #39536f;background:#14253a;color:#fff;font-weight:800;font-size:14px}.zf30-controls .play{background:#1593f7}.zf30-controls .stop{border-color:#874049;background:#28171b}.zf30-bottomnav{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:13px}.zf30-bottomnav button{height:58px;border-radius:14px;border:1px solid #354d69;background:#14243a;color:#d2dfed;font-weight:800;font-size:16px}.zf30-bottomnav .next{background:#20d56a;color:#06130b;border-color:#20d56a}.zf30-bottomnav button:disabled{opacity:.35}
-.zf30-launch{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}.zf30-launch button{min-height:54px;border-radius:14px;border:1px solid #38526f;background:#14243a;color:#fff;font-weight:800}.zf30-launch .visual{background:#24b8f2;color:#07111b;border-color:#24b8f2}.zf30-launch .voice{background:#0f7e52;border-color:#29b77f}
-@media(max-width:900px){.zf30-top{grid-template-columns:1fr auto}.zf30-context{display:none}.zf30-grid{grid-template-columns:1fr}.zf30-rail{display:flex;overflow:auto;padding:8px;scroll-snap-type:x mandatory}.zf30-rail button{min-width:160px;border-left:0;border-bottom:3px solid #2c4059;scroll-snap-align:start}.zf30-rail button.active{border-left:0;border-bottom-color:#28b8f1;border-radius:10px}.zf30-copy{order:3}.zf30-thumbs{display:flex;overflow-x:auto;scroll-snap-type:x mandatory}.zf30-thumb{min-width:165px;scroll-snap-align:start}.zf30-thumb .pic{height:90px}.zf30-voicehead{align-items:flex-start;flex-direction:column}.zf30-options{width:100%;flex-wrap:wrap}.zf30-mode{flex:1}.zf30-mode button{flex:1}.zf30-controls{grid-template-columns:1fr 1fr}.zf30-shell{padding:8px 8px 124px}.zf30-exhead h1{font-size:28px}.zf30-visual{padding:6px}.zf30-copy{padding:15px}.zf30-launch{grid-template-columns:1fr 1fr}}
+#zf30{position:fixed;inset:0;z-index:1000000;background:#081321;color:#fff;overflow:auto;font-family:Inter,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+#zf30 *{box-sizing:border-box}#zf30 button,#zf30 select{font:inherit}
+.zf30-shell{max-width:1180px;margin:auto;min-height:100%;padding:0 18px 120px}
+.zf31-appbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:260px 1fr 52px;gap:16px;align-items:center;min-height:78px;background:rgba(8,19,33,.97);backdrop-filter:blur(14px);border-bottom:1px solid #20344b}
+.zf30-brand{display:flex;align-items:center;gap:12px}.zf30-logo{width:50px;height:50px;border:2px solid #00f77f;border-radius:13px;display:grid;place-items:center;color:#22c7ff;background:#0e1d2e;font-weight:900;box-shadow:0 0 20px #00bfff18}.zf30-brand b{font-size:25px;line-height:1}.zf30-brand small{display:block;margin-top:4px;color:#a9b8c9;font-size:13px}
+.zf31-topnav{display:flex;justify-content:center;gap:7px}.zf31-navbtn{min-width:76px;height:64px;border:0;border-radius:11px;background:transparent;color:#a8b7c8;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:12px}.zf31-navbtn .ico{font-size:20px;line-height:1}.zf31-navbtn.active{color:#fff;background:#10263e;border-bottom:3px solid #00bfff}.zf31-profile{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#0099ff;color:#fff;font-weight:800;border:0}
+.zf31-backrow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:17px 0 8px}.zf31-back,.zf31-fav{height:44px;border-radius:999px;border:1px solid #29425f;background:#0d1b2c;color:#dce9f6;padding:0 16px}.zf31-back{border:0;background:transparent;padding-left:0}.zf31-fav{min-width:170px}
+.zf30-exhead{padding:3px 0 15px}.zf31-titleline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.zf30-exhead h1{margin:0;font-size:35px;line-height:1.08;letter-spacing:-.02em}.zf31-category{display:inline-flex;align-items:center;height:34px;padding:0 12px;border-radius:9px;border:1px solid #00f77f;color:#00f77f;background:#08251c;font-weight:800;font-size:14px}.zf30-exhead p{margin:7px 0 0;color:#a9b8c9;font-size:16px}.zf30-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:13px}.zf30-chip{display:inline-flex;align-items:center;gap:7px;min-height:38px;padding:7px 12px;border-radius:9px;border:1px solid #29435f;background:#0d1b2d;color:#d7e4f1;font-size:13px}
+.zf30-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(310px,.85fr);gap:12px;align-items:stretch}.zf30-visual,.zf30-copy{border-radius:15px;background:#0b1828}.zf30-visual{min-height:540px;border:2px solid #00aef0;overflow:hidden;box-shadow:0 12px 40px #0005}.zf30-copy{border:1px solid #2b435f;padding:18px;display:flex;flex-direction:column}.zf31-photo-wrap{position:relative;width:100%;height:100%;min-height:540px;background:linear-gradient(150deg,#26313e,#131c29);overflow:hidden}.zf31-photo{display:block;width:100%;height:100%;min-height:540px;object-fit:cover}.zf31-photo-thumb{min-height:0;height:100%;object-fit:cover}.zf31-illustration{display:grid;align-items:center}.zf31-illustration .zf30-svg{width:100%;height:auto}.zf31-step-badge{position:absolute;left:14px;top:14px;z-index:4;background:#0d91ff;color:#fff;border-radius:999px;padding:8px 15px;font-size:13px;font-weight:900;box-shadow:0 5px 18px #0004}.zf31-photo-title{position:absolute;left:18px;top:60px;z-index:4;font-size:29px;font-weight:850;text-shadow:0 2px 16px #000}.zf31-callout{position:absolute;z-index:4;max-width:190px;padding:8px 10px;border-radius:7px;border:1px solid #00bfff;background:#071421e8;color:#fff;font-size:12px;line-height:1.25;box-shadow:0 8px 24px #0007}.zf31-callout:after{content:"";position:absolute;width:42px;height:1px;background:#e9f7ff;opacity:.8}.zf31-callout-a{left:15%;top:29%}.zf31-callout-a:after{left:100%;top:70%;transform:rotate(28deg);transform-origin:left}.zf31-callout-b{right:4%;bottom:19%}.zf31-callout-b:after{right:100%;top:40%;transform:rotate(-25deg);transform-origin:right}
+.zf30-kicker{color:#fff;font-size:19px;font-weight:850;margin-bottom:12px}.zf30-copy h2{display:none}.zf30-list{display:grid;gap:13px}.zf30-item{display:grid;grid-template-columns:31px 1fr;gap:10px;align-items:start;color:#e1ebf6;line-height:1.42;font-size:14px}.zf30-item .num{width:29px;height:29px;border-radius:50%;background:#0d91ff;display:grid;place-items:center;font-weight:900;color:#fff}.zf30-item:nth-child(n+2) .num{background:transparent;color:#fff;font-size:18px}.zf30-item:nth-child(n+2) .num:before{content:"✓"}.zf30-item:nth-child(n+2) .num{font-size:0}.zf30-tip{margin-top:auto;padding:15px;border-radius:12px;background:#09261d;border:1px solid #0b6d48;color:#e7fff3}.zf30-tip b{display:block;color:#fff;font-size:18px;margin-bottom:7px}.zf30-tip b:before{content:"● ";color:#00f77f}.zf30-warn{margin-top:10px;padding:14px;border-radius:12px;background:#24161a;border:1px solid #ff4d4f}.zf30-warn b{display:block;color:#ff6b55;font-size:16px;margin-bottom:8px}.zf30-warn ul{list-style:none;margin:0;padding:0}.zf30-warn li{margin:8px 0;color:#f5dede;font-size:13px}.zf30-warn li:before{content:"✕";color:#ff4d4f;font-weight:900;margin-right:8px}
+.zf30-thumbs{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:11px 0 14px;padding:8px;border:1px solid #29435f;border-radius:15px;background:#0b1726}.zf30-thumb{border:2px solid #2b3e56;background:#0e1928;border-radius:11px;padding:4px;color:#d8e6f3;text-align:left;overflow:hidden;min-width:0}.zf30-thumb.active{border-color:#00bfff;box-shadow:0 0 0 2px #00bfff26}.zf30-thumb .pic{height:98px;border-radius:8px;overflow:hidden;background:#192432}.zf30-thumb strong{display:block;padding:7px 4px 4px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.zf30-thumb strong span{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#0d91ff;margin-right:5px;color:#fff}
+.zf30-voice{position:sticky;bottom:8px;z-index:20;background:#0b192af8;border:1px solid #2a4665;border-radius:15px;padding:14px;box-shadow:0 14px 44px #0009}.zf30-voicehead{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:11px}.zf30-vtitle{display:flex;align-items:center;gap:11px}.zf30-vtitle .icon{font-size:29px;color:#00bfff}.zf30-vtitle b{font-size:18px}.zf30-vtitle small{display:block;color:#9dafc2;font-size:12px;margin-top:2px}.zf30-options{display:flex;gap:8px;align-items:center}.zf30-options select{height:44px;min-width:218px;border-radius:10px;border:1px solid #31506f;background:#0f2034;color:#fff;padding:0 12px}.zf31-speed{min-width:78px!important}.zf30-mode{display:flex;border:1px solid #31506f;border-radius:10px;overflow:hidden}.zf30-mode button{height:46px;border:0;background:#0d1c30;color:#cbd9e8;padding:0 15px}.zf30-mode button.active{background:#21bdf5;color:#061019;font-weight:900}.zf30-controls{display:grid;grid-template-columns:1.25fr .8fr 1fr .72fr;gap:8px}.zf30-controls button{height:48px;border-radius:10px;border:1px solid #35516f;background:#14253a;color:#fff;font-weight:800;font-size:14px}.zf30-controls .play{background:#0d91ff;border-color:#23bfff}.zf30-controls .stop{background:#14253a}.zf30-bottomnav{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.zf30-bottomnav button{height:58px;border-radius:10px;border:1px solid #31506f;background:#112239;color:#d7e4f1;font-weight:850;font-size:16px}.zf30-bottomnav .next{background:#00f77f;color:#03140b;border-color:#00f77f}.zf30-bottomnav button:disabled{opacity:.35}
+.zf30-launch{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}.zf30-launch button{min-height:54px;border-radius:12px;border:1px solid #38526f;background:#14243a;color:#fff;font-weight:850}.zf30-launch .visual{background:#24b8f2;color:#07111b;border-color:#24b8f2}.zf30-launch .voice{background:#0f7e52;border-color:#29b77f}
+@media(max-width:900px){.zf30-shell{padding:0 10px 116px}.zf31-appbar{grid-template-columns:1fr auto;min-height:68px}.zf31-topnav{grid-column:1/-1;order:3;justify-content:space-between;gap:3px;padding-bottom:6px;overflow-x:auto}.zf31-navbtn{min-width:62px;height:54px;font-size:11px}.zf31-profile{grid-column:2}.zf30-brand b{font-size:22px}.zf30-logo{width:44px;height:44px}.zf31-backrow{padding-top:12px}.zf31-fav{min-width:auto}.zf30-exhead h1{font-size:29px}.zf30-grid{grid-template-columns:1fr}.zf30-visual{min-height:430px}.zf31-photo-wrap,.zf31-photo{min-height:430px}.zf30-copy{padding:15px}.zf30-thumbs{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;padding:7px}.zf30-thumb{min-width:155px;scroll-snap-align:start}.zf30-thumb .pic{height:95px}.zf30-voicehead{align-items:flex-start;flex-direction:column}.zf30-options{width:100%;flex-wrap:wrap}.zf30-options select{min-width:0;flex:1}.zf30-mode{width:100%}.zf30-mode button{flex:1}.zf30-controls{grid-template-columns:1fr 1fr}.zf31-photo-title{font-size:25px}.zf31-callout{font-size:11px;max-width:150px}.zf31-callout-b{right:2%;bottom:15%}}
+@media(max-width:520px){.zf30-shell{padding-left:7px;padding-right:7px}.zf31-appbar{padding-top:4px}.zf31-topnav{margin:0 -3px}.zf30-exhead h1{font-size:27px}.zf30-visual{min-height:360px}.zf31-photo-wrap,.zf31-photo{min-height:360px}.zf31-callout-b{display:none}.zf30-thumb{min-width:140px}.zf30-controls button{height:52px}.zf30-bottomnav button{height:58px}}
 `;document.head.appendChild(s);
   }
 
@@ -546,14 +580,14 @@
     if(!currentDemo)return"";
     const s=currentDemo.steps[currentStep];
     if(voiceMode==="essential")return `Step ${currentStep+1}. ${s.title}. ${s.cue}.`;
-    return `Step ${currentStep+1}. ${s.title}. ${s.text} Coaching cue. ${s.cue}.`;
+    return `Step ${currentStep+1}. ${s.title}. ${s.text} Coaching cue. ${s.cue}. Move smoothly. Take your time and keep the position controlled.`;
   }
   function playVoice(){
     if(!("speechSynthesis" in window)||!currentDemo)return;
     stopVoice();
     const u=new SpeechSynthesisUtterance(stepSpeech());
     const v=bestVoice();if(v)u.voice=v;
-    u.rate=voiceRate;u.pitch=.96;u.volume=.95;
+    u.rate=voiceRate;u.pitch=.94;u.volume=.96;
     u.onend=()=>{utterance=null;paused=false;paintVoiceState()};
     u.onerror=()=>{utterance=null;paused=false;paintVoiceState()};
     utterance=u;speechSynthesis.speak(u);paintVoiceState();
@@ -568,17 +602,16 @@
   function renderDemo(){
     const root=document.getElementById("zf30");if(!root||!currentDemo||!currentExercise)return;
     const s=currentDemo.steps[currentStep];
-    root.querySelector(".zf30-visual").innerHTML=trainerSvg(currentDemo.family,currentStep,s.title,[s.cue,currentDemo.feel],false);
-    root.querySelector(".zf30-kicker").textContent=`Step ${currentStep+1} of ${currentDemo.steps.length}`;
-    root.querySelector(".zf30-copy h2").textContent=s.title;
+    root.querySelector(".zf30-visual").innerHTML=demoVisualHtml(currentExercise,currentStep,false);
+    root.querySelector(".zf30-kicker").textContent="Instructions";
     root.querySelector(".zf30-list").innerHTML=`
-      <div class="zf30-item"><span class="num">1</span><span>${esc(s.text)}</span></div>
-      <div class="zf30-item"><span class="num">2</span><span><b>Coach cue:</b> ${esc(s.cue)}</span></div>
-      <div class="zf30-item"><span class="num">3</span><span>Move slowly enough that you can stop and hold the position at any point.</span></div>`;
-    root.querySelector(".zf30-tip").innerHTML=`<b>💡 What you should feel</b><div>${esc(currentDemo.feel)}</div>`;
+      <div class="zf30-item"><span class="num">${currentStep+1}</span><span>${esc(s.text)}</span></div>
+      <div class="zf30-item"><span class="num"></span><span>${esc(s.cue)}</span></div>
+      <div class="zf30-item"><span class="num"></span><span>Keep the movement controlled and use only the range you can own comfortably.</span></div>`;
+    root.querySelector(".zf30-tip").innerHTML=`<b>What you should feel</b><div>${esc(currentDemo.feel)}</div>`;
     root.querySelector(".zf30-warn").innerHTML=`<b>⚠ Common mistakes</b><ul>${currentDemo.mistakes.map(m=>`<li>${esc(m)}</li>`).join("")}</ul>`;
     root.querySelectorAll("[data-step]").forEach(b=>b.classList.toggle("active",Number(b.dataset.step)===currentStep));
-    root.querySelector(".zf30-progress span").style.width=`${((currentStep+1)/currentDemo.steps.length)*100}%`;
+    root.querySelectorAll(".zf30-thumb .pic").forEach((p,i)=>{p.innerHTML=demoVisualHtml(currentExercise,i,true)});
     const prev=root.querySelector("[data-action='prev']"),next=root.querySelector("[data-action='next']");
     prev.disabled=currentStep===0;next.textContent=currentStep===currentDemo.steps.length-1?"Finish Demo":"Next Step →";
   }
@@ -587,33 +620,41 @@
     currentExercise=ex||getExercise();currentDemo=makeDemo(currentExercise);currentStep=0;stopVoice();
     document.getElementById("zf30")?.remove();
     const root=document.createElement("div");root.id="zf30";
-    const sessionTitle=(()=>{try{return typeof state!=="undefined"&&state?state.workoutName:"Workout"}catch(e){return"Workout"}})();
     const setCount=Array.isArray(currentExercise.sets)?currentExercise.sets.length:currentExercise.sets||"—";
+    const category=esc(currentExercise.block||"Exercise");
     root.innerHTML=`<div class="zf30-shell">
-      <header class="zf30-top">
-        <div class="zf30-brand"><div class="zf30-logo">ZF</div><div><b>Zahi Fit</b><small style="display:block;color:#9eb1c7">Your Personal PT</small></div></div>
-        <div class="zf30-context"><div><b>${esc(sessionTitle)}</b><div style="color:#9db0c8;font-size:13px">Exercise guidance</div></div><div class="zf30-progress"><span></span></div></div>
-        <button class="zf30-close" data-action="close" aria-label="Close">×</button>
+      <header class="zf31-appbar">
+        <div class="zf30-brand"><div class="zf30-logo">ZF</div><div><b>Zahi Fit</b><small>Your Personal PT</small></div></div>
+        <nav class="zf31-topnav" aria-label="Zahi Fit navigation">
+          <button class="zf31-navbtn"><span class="ico">${navIcon("home")}</span><span>Home</span></button>
+          <button class="zf31-navbtn active"><span class="ico">${navIcon("train")}</span><span>Train</span></button>
+          <button class="zf31-navbtn"><span class="ico">${navIcon("history")}</span><span>History</span></button>
+          <button class="zf31-navbtn"><span class="ico">${navIcon("ai")}</span><span>AI Coach</span></button>
+          <button class="zf31-navbtn"><span class="ico">${navIcon("more")}</span><span>More</span></button>
+        </nav>
+        <button class="zf31-profile" aria-label="Profile">ZC</button>
       </header>
 
+      <div class="zf31-backrow">
+        <button class="zf31-back" data-action="close">← &nbsp; Back to Exercises</button>
+        <button class="zf31-fav" type="button">♡ &nbsp; Add to Favourites</button>
+      </div>
+
       <section class="zf30-exhead">
-        <h1>${esc(currentExercise.n)}</h1>
+        <div class="zf31-titleline"><h1>${esc(currentExercise.n)}</h1><span class="zf31-category">${category}</span></div>
         <p>${esc(currentExercise.cue||"Follow the coached movement sequence below.")}</p>
         <div class="zf30-meta">
           <span class="zf30-chip">◷ ${esc(String(setCount))} sets</span>
           <span class="zf30-chip">◎ ${esc(currentExercise.reps||"—")}</span>
           <span class="zf30-chip">⌛ ${currentExercise.rest?`Rest ${currentExercise.rest}s`:"Continuous"}</span>
-          <span class="zf30-chip">💪 ${esc(currentExercise.block||"Exercise")}</span>
+          <span class="zf30-chip">▥ ${category}</span>
         </div>
       </section>
 
       <section class="zf30-grid">
-        <nav class="zf30-rail">
-          ${currentDemo.steps.map((s,i)=>`<button data-step="${i}"><span class="n">${i+1}</span><small>${esc(s.title)}</small></button>`).join("")}
-        </nav>
         <div class="zf30-visual"></div>
         <aside class="zf30-copy">
-          <div class="zf30-kicker"></div><h2></h2>
+          <div class="zf30-kicker">Instructions</div><h2></h2>
           <div class="zf30-list"></div>
           <div class="zf30-tip"></div>
           <div class="zf30-warn"></div>
@@ -621,25 +662,25 @@
       </section>
 
       <section class="zf30-thumbs">
-        ${currentDemo.steps.map((s,i)=>`<button class="zf30-thumb" data-step="${i}">
-          <div class="pic">${trainerSvg(currentDemo.family,i,s.title,[],true)}</div>
-          <strong><span>${i+1}</span>${esc(s.title)}</strong>
-        </button>`).join("")}
+        ${currentDemo.steps.map((s,i)=>`<button class="zf30-thumb" data-step="${i}"><div class="pic"></div><strong><span>${i+1}</span>${esc(s.title)}</strong></button>`).join("")}
       </section>
 
       <section class="zf30-voice">
         <div class="zf30-voicehead">
-          <div class="zf30-vtitle"><div class="icon">🔊</div><div><b>Voice Coach</b><small>Controls stay visible while you follow the movement.</small></div></div>
+          <div class="zf30-vtitle"><div class="icon">🔊</div><div><b>Voice Coach</b><small>Step-by-step guidance with clear timing.</small></div></div>
           <div class="zf30-options">
-            <select data-action="speed" aria-label="Voice speed"><option value="0.70">Very slow</option><option value="0.82">Smooth</option><option value="0.94">Normal</option></select>
-            <div class="zf30-mode"><button data-mode="essential">Essential cues</button><button data-mode="full">Full coaching</button></div>
+            <select aria-label="Voice style"><option>Smooth Coach (Recommended)</option></select>
+            <select class="zf31-speed" data-action="speed" aria-label="Voice speed"><option value="0.70">0.8x</option><option value="0.82">1.0x</option><option value="0.94">1.2x</option></select>
           </div>
         </div>
-        <div class="zf30-controls">
-          <button class="play" data-action="play">▶ Play Step</button>
-          <button data-action="pause">❚❚ Pause</button>
-          <button data-action="replay">↻ Replay Step</button>
-          <button class="stop" data-action="stop">■ Stop</button>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center">
+          <div class="zf30-controls">
+            <button class="play" data-action="play">▶ Play Step</button>
+            <button data-action="pause">❚❚ Pause</button>
+            <button data-action="replay">↻ Replay Step</button>
+            <button class="stop" data-action="stop">■ Stop</button>
+          </div>
+          <div class="zf30-mode"><button data-mode="essential">Essential</button><button data-mode="full">Full Coaching</button></div>
         </div>
       </section>
 
@@ -651,9 +692,8 @@
     document.body.appendChild(root);
     root.querySelector("[data-action='speed']").value=String(voiceRate);
     root.querySelectorAll("[data-mode]").forEach(b=>b.classList.toggle("active",b.dataset.mode===voiceMode));
-    bindDemoEvents(root);
-    renderDemo();
-    if(autoplay)setTimeout(playVoice,180);
+    bindDemoEvents(root);renderDemo();
+    if(autoplay)setTimeout(playVoice,240);
   }
 
   function bindDemoEvents(root){
@@ -698,7 +738,7 @@
       const prior=renderExercise;
       renderExercise=function(){prior();injectLaunchers()};
       if(typeof state!=="undefined"&&state)injectLaunchers();
-    }catch(e){console.error("Zahi Fit v3 launcher setup failed",e)}
+    }catch(e){console.error("Zahi Fit v3.1 launcher setup failed",e)}
   }
 
   /* Robust delegated click handling: no dependence on the older v2.7 buttons. */

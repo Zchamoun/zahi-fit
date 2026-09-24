@@ -1,8 +1,10 @@
-const CACHE = 'zahi-fit-v3.0.0';
+const CACHE = 'zahi-fit-v3.1.0';
 const ASSETS = [
   './','./index.html','./app.css','./app.js','./v24.css','./v24.js',
   './v25.css','./v25.js','./v251.js','./v27.css','./v27.js','./v271.js',
-  './manifest.json','./icon-192.png','./icon-512.png'
+  './manifest.json','./icon-192.png','./icon-512.png',
+  './pt-assets/world-stretch-step1.jpg','./pt-assets/world-stretch-step2.jpg','./pt-assets/world-stretch-step3.jpg',
+  './pt-assets/world-stretch-step4.jpg','./pt-assets/world-stretch-step5.jpg'
 ];
 
 self.addEventListener('install', event => {
