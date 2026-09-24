@@ -4,6 +4,7 @@
   const VERSION = "v3.1.3";
   const RATE_KEY = "zahiFitVoiceRateV312";
   const MODE_KEY = "zahiFitVoiceModeV312";
+  const VOICE_KEY = "zahiFitVoiceNameV313";
 
   let currentDemo = null;
   let currentExercise = null;
