@@ -1,11 +1,11 @@
 /* Zahi Fit v4 service worker.
    Core files are precached per release; exercise images are cached the first time they're viewed.
    A new version waits until the user taps "Update" so the app never reloads mid-set. */
-const VERSION = "4.1.1";
+const VERSION = "4.2.0";
 const CORE = `zahi-fit-core-${VERSION}`;
 const MEDIA = "zahi-fit-media-v1";
 const ASSETS = [
-  "./", "./index.html", "./styles.css", "./data.js", "./app.js", "./manifest.json",
+  "./", "./index.html", "./styles.css", "./data.js", "./data-de.js", "./app.js", "./manifest.json",
   "./icon-192.png", "./icon-512.png",
   "./fonts/nunito-latin-400-normal.woff2", "./fonts/nunito-latin-600-normal.woff2",
   "./fonts/nunito-latin-700-normal.woff2", "./fonts/nunito-latin-800-normal.woff2",

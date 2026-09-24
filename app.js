@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.1.1";
+const VERSION = "4.2.0";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -228,24 +228,31 @@ function prevLine(ex, prev){
     if(t === "carry") return s.w || s.r ? `${s.w||"–"} kg · ${s.r||"–"}` : null;
     return s.w || s.r ? `${s.w||"–"}×${s.r||"–"}` : null;
   }).filter(Boolean);
-  return rows.length ? `Last time: ${rows.join(", ")}${prev.rpe ? ` · RPE ${prev.rpe}` : ""}` : "";
+  return rows.length ? `${isDE() ? "Letztes Mal" : "Last time"}: ${rows.join(", ")}${prev.rpe ? ` · RPE ${prev.rpe}` : ""}` : "";
 }
 function suggestion(ex, prev, reduced){
-  const t = trackingType(ex);
+  const t = trackingType(ex), de = isDE();
   if(t === "repsTime") return ex.block === "Flexibility"
-    ? (reduced ? "Comfortable range only today. Don't force end range." : "Aim for smoother breathing and slightly more pain-free range.")
-    : "Progress through control and pain-free range, not load.";
-  if(t === "bike") return reduced ? "Keep hard intervals around RPE 6–7 with smooth cadence." : "Add resistance or cadence only if every interval stays repeatable.";
-  if(t === "stair") return reduced ? "Pick a controlled level, stay tall, don't hang on the rails." : "Add one level or a little time only if posture holds.";
-  if(t === "conditioning") return reduced ? "Reduce pace or rounds as needed. Movement quality first." : "Nudge pace or total work while technique stays clean.";
+    ? (reduced ? (de ? "Heute nur im angenehmen Bereich. Die Endposition nicht erzwingen." : "Comfortable range only today. Don't force end range.")
+               : (de ? "Ruhiger atmen und etwas mehr schmerzfreien Umfang anstreben." : "Aim for smoother breathing and slightly more pain-free range."))
+    : (de ? "Fortschritt über Kontrolle und schmerzfreien Umfang, nicht über Gewicht." : "Progress through control and pain-free range, not load.");
+  if(t === "bike") return reduced ? (de ? "Harte Intervalle bei etwa RPE 6–7 mit gleichmäßiger Trittfrequenz." : "Keep hard intervals around RPE 6–7 with smooth cadence.")
+    : (de ? "Widerstand oder Trittfrequenz nur erhöhen, wenn jedes Intervall wiederholbar bleibt." : "Add resistance or cadence only if every interval stays repeatable.");
+  if(t === "stair") return reduced ? (de ? "Kontrollierte Stufe wählen, aufrecht bleiben, nicht am Geländer hängen." : "Pick a controlled level, stay tall, don't hang on the rails.")
+    : (de ? "Eine Stufe oder etwas mehr Zeit hinzufügen, nur wenn die Haltung stabil bleibt." : "Add one level or a little time only if posture holds.");
+  if(t === "conditioning") return reduced ? (de ? "Tempo oder Runden nach Bedarf reduzieren. Bewegungsqualität zuerst." : "Reduce pace or rounds as needed. Movement quality first.")
+    : (de ? "Tempo oder Gesamtarbeit leicht steigern, solange die Technik sauber bleibt." : "Nudge pace or total work while technique stays clean.");
   const done = prev && Array.isArray(prev.sets) ? prev.sets.filter((s,i) => !prev.done || prev.done[i] !== false) : [];
   const vals = done.map(s => num(s.w)).filter(v => v != null);
-  if(!vals.length) return reduced ? "Easy technical load today, 3–4 reps in reserve." : "Pick a load you can finish with 2–3 reps in reserve.";
+  if(!vals.length) return reduced ? (de ? "Heute ein leichtes Technikgewicht, 3–4 Wiederholungen in Reserve." : "Easy technical load today, 3–4 reps in reserve.")
+    : (de ? "Wähle ein Gewicht, bei dem 2–3 Wiederholungen in Reserve bleiben." : "Pick a load you can finish with 2–3 reps in reserve.");
   const avg = vals.reduce((a,b) => a+b, 0) / vals.length, rpe = Number(prev.rpe || 8);
-  if(reduced) return `Today: about ${fmtKg(Math.max(0, avg-2.5))} kg, or last load with fewer reps.`;
-  if(rpe <= 7) return `Last time felt controlled. Try ${fmtKg(avg+2.5)} kg if the warm-up feels good.`;
-  if(rpe >= 9) return `Last time was very hard. Try ${fmtKg(Math.max(0, avg-2.5))} kg or fewer reps.`;
-  return `Repeat ${fmtKg(avg)} kg and tighten the reps. Go up once the last set sits at RPE 7–8.`;
+  const lo = fmtKg(Math.max(0, avg-2.5)), hi = fmtKg(avg+2.5), same = fmtKg(avg);
+  if(reduced) return de ? `Heute: etwa ${lo} kg oder das letzte Gewicht mit weniger Wiederholungen.` : `Today: about ${lo} kg, or last load with fewer reps.`;
+  if(rpe <= 7) return de ? `Letztes Mal war kontrolliert. Versuch ${hi} kg, wenn sich das Aufwärmen gut anfühlt.` : `Last time felt controlled. Try ${hi} kg if the warm-up feels good.`;
+  if(rpe >= 9) return de ? `Letztes Mal war sehr schwer. Versuch ${lo} kg oder weniger Wiederholungen.` : `Last time was very hard. Try ${lo} kg or fewer reps.`;
+  return de ? `Wiederhole ${same} kg und mach die Wiederholungen sauberer. Steigere, sobald der letzte Satz bei RPE 7–8 liegt.`
+            : `Repeat ${same} kg and tighten the reps. Go up once the last set sits at RPE 7–8.`;
 }
 
 /* ---------- sound + voice ----------
@@ -289,10 +296,52 @@ const SAY = {
     rest:sec => `Pause. ${sec >= 60 ? `${Math.floor(sec/60) === 1 ? "Eine Minute" : `${Math.floor(sec/60)} Minuten`}${sec % 60 ? ` ${sec % 60} Sekunden` : ""}` : `${sec} Sekunden`}.`,
     ten:"Noch zehn Sekunden.", done:"Pause vorbei. Nächster Satz, wenn du bereit bist.", good:"Guter Satz. Bleib sauber in der Bewegung.",
     test:"Hallo, ich bin dein Zahi Fit Coach. Lass uns heute gut trainieren.",
-    step:(n, t, x, c) => `Step ${n}. ${t}. ${x}${c ? ` Remember: ${c}.` : ""}`   // translated by the worker
+    step:(n, t, x, c) => `Schritt ${n}. ${t}. ${x}${c ? ` Merke: ${c}.` : ""}`
   }
 };
 const phrase = () => SAY[voice.lang];
+
+/* ---------- exercise language (English / Deutsch) ----------
+   The chosen language drives the exercise screen, the step-by-step guide and the voice together.
+   Data keys stay English, so history and load suggestions are shared across languages. */
+const isDE = () => voice.lang === "de" && typeof DE !== "undefined";
+const UI = {
+  en:{of:"of", rest:"rest", continuous:"continuous", replacing:"Replacing", howTo:"How to do it", howToSub:"5-step photo guide with voice coaching",
+    kg:"kg", reps:"Reps", done:"Done", repsTime:"Reps / time", timeSide:"Time / side", resistance:"Resistance", time:"Time", level:"Level",
+    loadLevel:"Load / level", rounds:"Rounds / time", distance:"Distance", addSet:"+ Add a set", howHard:"How hard was it?", howHardSub:" Guides next time's load.",
+    easy:"Easy", good:"Good", hard:"Hard", veryHard:"Very hard", steady:"Steady", technique:"Technique", doIt:"Do", avoid:"Avoid",
+    stepGuide:"Step-by-step guide", talk:"Talk me through it", next:"Next", finish:"Finish workout", skipped:"You skipped this exercise. It won't count toward today's progress.",
+    include:"Include it again", feel:"What you should feel", voiceSpeed:"Voice speed", slower:"Slower", normal:"Normal", faster:"Faster",
+    preparing:"Preparing voice…", stop:"Stop", restLbl:"Rest", skip:"Skip", exercises:"Exercises", setsDone:"of today's sets done",
+    skippedState:"skipped", doneState:"done", step:"step"},
+  de:{of:"von", rest:"Pause", continuous:"durchgehend", replacing:"Ersetzt", howTo:"So geht's", howToSub:"5-Schritte-Fotoanleitung mit Sprachcoach",
+    kg:"kg", reps:"Wdh.", done:"Fertig", repsTime:"Wdh. / Zeit", timeSide:"Zeit / Seite", resistance:"Widerstand", time:"Zeit", level:"Stufe",
+    loadLevel:"Last / Stufe", rounds:"Runden / Zeit", distance:"Strecke", addSet:"+ Satz hinzufügen", howHard:"Wie anstrengend war es?", howHardSub:" Bestimmt das Gewicht beim nächsten Mal.",
+    easy:"Leicht", good:"Gut", hard:"Schwer", veryHard:"Sehr schwer", steady:"Gleichmäßig", technique:"Technik", doIt:"Achte auf", avoid:"Vermeide",
+    stepGuide:"Schritt für Schritt", talk:"Anleitung vorlesen", next:"Weiter", finish:"Training beenden", skipped:"Du hast diese Übung übersprungen. Sie zählt heute nicht zum Fortschritt.",
+    include:"Wieder aufnehmen", feel:"Was du spüren solltest", voiceSpeed:"Sprechtempo", slower:"Langsamer", normal:"Normal", faster:"Schneller",
+    preparing:"Stimme wird vorbereitet…", stop:"Stopp", restLbl:"Pause", skip:"Überspringen", exercises:"Übungen", setsDone:"der heutigen Sätze erledigt",
+    skippedState:"übersprungen", doneState:"fertig", step:"Schritt"}
+};
+const T = k => (isDE() ? UI.de : UI.en)[k] ?? UI.en[k] ?? k;
+const exName = n => isDE() ? (DE.names[n] || n) : n;
+const exCue = ex => isDE() && DE.ex[ex.n] ? DE.ex[ex.n][0] : ex.cue;
+const exHow = ex => isDE() && DE.ex[ex.n] ? DE.ex[ex.n][1] : (ex.how || []);
+const exMistakes = ex => isDE() && DE.ex[ex.n] ? DE.ex[ex.n][2] : (ex.mistakes || []);
+const blockName = b => isDE() ? (DE.blocks[b] || b) : b;
+const repsText = r => isDE() ? DE.reps(r) : r;
+const stepsOf = fam => (isDE() ? (DE.steps[fam] || DE.steps.circuit) : (STEPS[fam] || STEPS.circuit));
+const feelOf = fam => isDE() ? (DE.feel[fam] || "Die Zielmuskeln arbeiten kontrolliert und schmerzfrei.") : feelFor(fam);
+const ADAPT_DE = {
+  recovery60:["Regenerationseinheit","Kurz und locker: 3–4 Wiederholungen in Reserve, weniger Sätze, sanfte Ausdauer."],
+  reduced:["Reduzierte Last","3–4 Wiederholungen in Reserve, weniger Zusatzvolumen, kontrollierte Ausdauer."],
+  time60:["60-Minuten-Fokus","Aufwärmen, Hauptübung, eine wichtige Zusatzübung, Stabilität, Ausdauer und Cooldown."],
+  balanced75:["Ausgewogene Einheit","Hauptübungen und Ausdauer bleiben; etwas weniger Zusatzvolumen."],
+  full:["Volle Einheit","Absolviere das geplante Training bei RPE 7–8 mit 1–3 Wiederholungen in Reserve bei Grundübungen."]
+};
+const adaptText = a => isDE() && ADAPT_DE[a.mode] ? {label:ADAPT_DE[a.mode][0], message:ADAPT_DE[a.mode][1]} : a;
+const langLabel = l => l === "de" ? "Deutsch" : "English";
+const genderLabel = g => ({male:"Male", female:"Female", neutral:"Neutral"})[g];
 const LANG_TAG = {en:"en", de:"de"};
 
 /* -- device voice: pick by language + gender, prefer network/neural voices, speak sentence by sentence -- */
@@ -431,11 +480,11 @@ function paintRest(){
   if(!el){
     el = h("div", {class:"rest", role:"timer", "aria-live":"off"},
       h("div", {class:"inner"},
-        h("div", null, h("div", {class:"lbl"}, "Rest"), h("div", {class:"time"}, "00:00")),
+        h("div", null, h("div", {class:"lbl"}, T("restLbl")), h("div", {class:"time"}, "00:00")),
         h("div", {class:"ctrls"},
           h("button", {"aria-label":"Remove 15 seconds", onclick:() => adjustRest(-15)}, "−15"),
           h("button", {"aria-label":"Add 15 seconds", onclick:() => adjustRest(15)}, "+15"),
-          h("button", {class:"skip", onclick:stopRest}, "Skip")),
+          h("button", {class:"skip", onclick:stopRest}, T("skip"))),
         h("div", {class:"track"}, h("i"))));
     document.body.append(el);
   }
@@ -499,7 +548,7 @@ function renderToday(m){
     const ex = curEx();
     m.append(h("button", {class:"resume", onclick:() => go("workout")},
       h("i", {class:"pulse"}),
-      h("div", null, h("b", null, "Workout in progress"), h("span", null, `${ex.n} · ${state.exerciseIndex+1} of ${state.exercises.length} · ${completion()}% done`)),
+      h("div", null, h("b", null, "Workout in progress"), h("span", null, `${exName(ex.n)} · ${state.exerciseIndex+1} of ${state.exercises.length} · ${completion()}% done`)),
       h("span", {class:"go-arrow"}, "Resume")));
   }
   m.append(h("section", {class:"hero", "data-tone":nextIndex % 4},
@@ -550,7 +599,7 @@ function renderCheckin(m, index){
     const ul = h("ul", {class:"kept"});
     a.all.forEach(x => {
       const k = a.keep.find(y => y.n === x.n);
-      ul.append(h("li", {class:kept.has(x.n) ? "" : "cut", "data-block":x.block}, h("i", {class:"sw"}), x.n, h("em", null, k ? `${k.sets} × ${k.reps}` : "dropped")));
+      ul.append(h("li", {class:kept.has(x.n) ? "" : "cut", "data-block":x.block}, h("i", {class:"sw"}), exName(x.n), h("em", null, k ? `${k.sets} × ${repsText(k.reps)}` : "dropped")));
     });
     preview.append(h("div", {class:"panel"}, h("div", {class:"mode"}, a.profile.label), h("p", {class:"muted small"}, a.profile.message), ul));
   };
@@ -600,7 +649,7 @@ function renderWorkout(m){
         h("button", {class:"icon-btn plain", "aria-label":"Workout options", onclick:workoutMenu}, "⋯")),
       barSlot),
     ...(state.adaptation && state.adaptation.mode !== "full"
-      ? [h("button", {class:"adapt-pill", onclick:() => toast(state.adaptation.message)}, state.adaptation.label)] : []),
+      ? [h("button", {class:"adapt-pill", onclick:() => toast(adaptText(state.adaptation).message)}, adaptText(state.adaptation).label)] : []),
     body,
     h("nav", {class:"actionbar", "aria-label":"Workout controls"},
       h("div", {class:"inner"}, prev, next,
@@ -615,7 +664,7 @@ function paintNav(){
   const i = state.exerciseIndex, last = i === state.exercises.length - 1;
   wk.prev.disabled = i === 0;
   wk.next.className = "btn " + (last ? "go" : "primary");
-  wk.next.textContent = last ? "Finish workout" : `Next: ${state.exercises[i+1].n}`;
+  wk.next.textContent = last ? T("finish") : `${T("next")}: ${exName(state.exercises[i+1].n)}`;
 }
 function move(d){
   state.exerciseIndex = Math.max(0, Math.min(state.exercises.length-1, state.exerciseIndex + d));
@@ -628,14 +677,14 @@ function paintExercise(){
   paintBar(); paintNav(); b.replaceChildren();
   const restTxt = ex.rest ? (ex.rest >= 60 ? `${Math.floor(ex.rest/60)}:${String(ex.rest%60).padStart(2,"0")}` : `${ex.rest}s`) : null;
   b.append(h("header", {class:"ex-head"},
-    h("div", {class:"spread"}, h("span", {class:"tag", "data-block":ex.block}, ex.block), h("span", {class:"ex-count"}, `${state.exerciseIndex+1} of ${state.exercises.length}`)),
-    h("h2", {class:"ex-name"}, ex.n),
-    h("div", {class:"target"}, h("b", null, `${ex.sets.length} × ${ex.reps}`), restTxt ? ` · rest ${restTxt}` : " · continuous"),
-    ex.substitutedFor ? h("div", {class:"subbed"}, `Replacing ${ex.substitutedFor}`) : null));
+    h("div", {class:"spread"}, h("span", {class:"tag", "data-block":ex.block}, blockName(ex.block)), h("span", {class:"ex-count"}, `${state.exerciseIndex+1} ${T("of")} ${state.exercises.length}`)),
+    h("h2", {class:"ex-name"}, exName(ex.n)),
+    h("div", {class:"target"}, h("b", null, `${ex.sets.length} × ${repsText(ex.reps)}`), restTxt ? ` · ${T("rest")} ${restTxt}` : ` · ${T("continuous")}`),
+    ex.substitutedFor ? h("div", {class:"subbed"}, `${T("replacing")} ${exName(ex.substitutedFor)}`) : null));
 
   if(ex.skipped){
-    b.append(h("div", {class:"panel flat section"}, h("p", {class:"muted"}, "You skipped this exercise. It won't count toward today's progress."),
-      h("button", {class:"btn block", onclick:() => { ex.skipped = false; persist(); paintExercise(); }}, "Include it again")));
+    b.append(h("div", {class:"panel flat section"}, h("p", {class:"muted"}, T("skipped")),
+      h("button", {class:"btn block", onclick:() => { ex.skipped = false; persist(); paintExercise(); }}, T("include"))));
     return;
   }
 
@@ -643,22 +692,22 @@ function paintExercise(){
   b.append(h("div", {class:"advice", "data-block":ex.block}, suggestion(ex, prev, reducedDay()), last ? h("span", {class:"last"}, last) : null));
   const fam = familyOf(ex);
   b.append(h("button", {class:"guide-launch", onclick:() => openGuide(ex)}, stepImage(fam, 0, ""),
-    h("div", null, h("b", null, "How to do it"), h("span", null, "5-step photo guide with voice coaching"))));
+    h("div", null, h("b", null, T("howTo")), h("span", null, T("howToSub")))));
 
   // Set logger
   const simple = type === "repsTime";
-  const cols = type === "repsTime" ? ["", ex.block === "Flexibility" ? "Time / side" : "Reps / time", "Done"]
-    : type === "bike" ? ["", "Resistance", "Time", "Done"]
-    : type === "stair" ? ["", "Level", "Time", "Done"]
-    : type === "conditioning" ? ["", "Load / level", "Rounds / time", "Done"]
-    : type === "carry" ? ["", "kg", "Distance", "Done"] : ["", "kg", "Reps", "Done"];
+  const cols = type === "repsTime" ? ["", ex.block === "Flexibility" ? T("timeSide") : T("repsTime"), T("done")]
+    : type === "bike" ? ["", T("resistance"), T("time"), T("done")]
+    : type === "stair" ? ["", T("level"), T("time"), T("done")]
+    : type === "conditioning" ? ["", T("loadLevel"), T("rounds"), T("done")]
+    : type === "carry" ? ["", T("kg"), T("distance"), T("done")] : ["", T("kg"), T("reps"), T("done")];
   const list = h("div", {class:"sets"});
   const current = ex.sets.findIndex(s => !s.done);
   const step = ["bike","stair","conditioning"].includes(type) ? 1 : 2.5;
   ex.sets.forEach((s,i) => {
     const p = prev && prev.sets && prev.sets[i] && !(prev.done && prev.done[i] === false) ? prev.sets[i] : null;
     const phW = p && p.w ? p.w : (type === "loadReps" || type === "carry" ? "kg" : "–");
-    const phR = p && p.r ? p.r : ex.reps;
+    const phR = p && p.r ? p.r : repsText(ex.reps);
     const rIn = h("input", {inputmode:simple || type==="conditioning" || type==="bike" || type==="stair" ? "text" : "numeric", value:s.r, placeholder:phR, "aria-label":`Set ${i+1} ${cols[simple?1:2]}`, maxlength:"40"});
     rIn.addEventListener("input", () => { s.r = rIn.value.slice(0,40); persist(); });
     if(simple || String(phR).length > 6) rIn.classList.add("txt");
@@ -692,36 +741,36 @@ function paintExercise(){
   });
   b.append(h("div", {class:"colhead" + (simple ? " simple" : "")}, cols.map(c => h("span", null, c))), list);
   b.lastChild.previousSibling.classList.add("section");
-  if(ex.sets.length < 12) b.append(h("button", {class:"btn ghost sm", onclick:() => { const l = ex.sets[ex.sets.length-1]; ex.sets.push({w:l?.w||"", r:"", done:false}); persist(); paintExercise(); }}, "+ Add a set"));
+  if(ex.sets.length < 12) b.append(h("button", {class:"btn ghost sm", onclick:() => { const l = ex.sets[ex.sets.length-1]; ex.sets.push({w:l?.w||"", r:"", done:false}); persist(); paintExercise(); }}, T("addSet")));
 
   // Effort
   if(!simple){
-    const labels = ex.block === "Conditioning" ? [["Easy",6],["Steady",7],["Hard",8],["Very hard",9]] : [["Easy",6],["Good",7],["Hard",8],["Very hard",9]];
+    const labels = ex.block === "Conditioning" ? [[T("easy"),6],[T("steady"),7],[T("hard"),8],[T("veryHard"),9]] : [[T("easy"),6],[T("good"),7],[T("hard"),8],[T("veryHard"),9]];
     const seg = h("div", {class:"seg", role:"group", "aria-label":"How hard was it"});
     labels.forEach(([t,v]) => seg.append(h("button", {"aria-pressed":String(ex.rpe === v), onclick:() => { ex.rpe = ex.rpe === v ? null : v; persist(); paintExercise(); }}, t, h("small", null, `RPE ${v}`))));
-    b.append(h("div", {class:"effort"}, h("div", {class:"small"}, h("b", null, "How hard was it?"), h("span", {class:"muted"}, " Guides next time's load.")), seg));
+    b.append(h("div", {class:"effort"}, h("div", {class:"small"}, h("b", null, T("howHard")), h("span", {class:"muted"}, T("howHardSub"))), seg));
   }
 
   // Technique, on demand
   b.append(h("details", {class:"tech"},
-    h("summary", null, "Technique"),
-    h("p", {class:"cue"}, ex.cue),
-    h("h4", null, "Do"), h("ul", null, (ex.how||[]).map(x => h("li", null, x))),
-    h("h4", null, "Avoid"), h("ul", null, (ex.mistakes||[]).map(x => h("li", null, x))),
+    h("summary", null, T("technique")),
+    h("p", {class:"cue"}, exCue(ex)),
+    h("h4", null, T("doIt")), h("ul", null, exHow(ex).map(x => h("li", null, x))),
+    h("h4", null, T("avoid")), h("ul", null, exMistakes(ex).map(x => h("li", null, x))),
     h("div", {class:"btn-row"},
-      h("button", {class:"btn sm", onclick:() => openGuide(ex)}, "Step-by-step guide"),
-      h("button", {class:"btn sm", onclick:() => openGuide(ex, true)}, "Talk me through it"))));
+      h("button", {class:"btn sm", onclick:() => openGuide(ex)}, T("stepGuide")),
+      h("button", {class:"btn sm", onclick:() => openGuide(ex, true)}, T("talk")))));
 }
 
 function exerciseList(){
   sheet((card, close) => {
-    card.append(h("h2", null, "Exercises"), h("p", {class:"muted small"}, `${completion()}% of today's sets done`));
+    card.append(h("h2", null, T("exercises")), h("p", {class:"muted small"}, `${completion()}% ${T("setsDone")}`));
     const l = h("div", {class:"sheet-list"});
     state.exercises.forEach((ex,i) => {
       const d = ex.sets.filter(s => s.done).length;
       l.append(h("button", {"data-block":ex.block, onclick:() => { close(); state.exerciseIndex = i; persist(); paintExercise(); window.scrollTo({top:0}); }},
-        h("i", {class:"sw"}), h("div", {class:i === state.exerciseIndex ? "cur" : ""}, ex.n, h("span", null, ex.block)),
-        h("span", {class:"state"}, ex.skipped ? "skipped" : d === ex.sets.length ? "done" : `${d}/${ex.sets.length}`)));
+        h("i", {class:"sw"}), h("div", {class:i === state.exerciseIndex ? "cur" : ""}, exName(ex.n), h("span", null, blockName(ex.block))),
+        h("span", {class:"state"}, ex.skipped ? T("skippedState") : d === ex.sets.length ? T("doneState") : `${d}/${ex.sets.length}`)));
     });
     card.append(l);
   });
@@ -768,7 +817,7 @@ function alternatives(reason){
         state.exerciseIndex++;
       }else state.exercises[state.exerciseIndex] = repl;
       persist(); close(); paintExercise(); toast(`Swapped to ${src.n}.`);
-    }}, h("i", {class:"sw"}), h("div", null, src.n, h("span", null, src.block)))));
+    }}, h("i", {class:"sw"}), h("div", null, exName(src.n), h("span", null, blockName(src.block))))));
     l.append(h("button", {onclick:() => { close(); openCoachOverlay(`Recommend a substitute for ${ex.n} that keeps the same training purpose. Reason: ${reason}.`); }},
       h("div", null, "Ask the coach instead", h("span", null, "Get a suggestion that fits your situation"))));
     card.append(l);
@@ -966,33 +1015,34 @@ function stepImage(family, i, alt){
   img.addEventListener("error", () => { if(!img.dataset.fb){ img.dataset.fb = "1"; img.classList.add("svg"); img.src = `${SVG_ROOT}${family}-step${i+1}.svg`; } }, {once:false});
   return img;
 }
-function openGuide(ex, talk){
-  const fam = familyOf(ex), steps = (STEPS[fam] || STEPS.circuit).map((s,i) => ({title:s[0], text:s[1], cue:(ex.how||[])[i] || null}));
-  let i = 0, playingAll = false;
+function openGuide(ex, talk, startAt = 0){
+  const fam = familyOf(ex), how = exHow(ex);
+  const steps = stepsOf(fam).map((st,k) => ({title:st[0], text:st[1], cue:how[k] || null}));
+  let i = Math.min(startAt, steps.length - 1), playingAll = false;
   const inner = h("div", {class:"app"});
-  const ov = h("div", {class:"overlay guide", role:"dialog", "aria-modal":"true", "aria-label":`${ex.n} guide`}, inner);
+  const ov = h("div", {class:"overlay guide", role:"dialog", "aria-modal":"true", "aria-label":exName(ex.n)}, inner);
   const close = () => { hush(); playingAll = false; ov.remove(); };
   const stage = h("div", {class:"stage"}), dots = h("div", {class:"steps-dots"}), content = h("div");
   const playBtn = h("button", {class:"btn primary"}), prev = h("button", {class:"icon-btn", "aria-label":"Previous step"}, "‹"), next = h("button", {class:"icon-btn", "aria-label":"Next step"}, "›");
   const lineFor = k => phrase().step(k+1, steps[k].title, steps[k].text, steps[k].cue);
   const say = (then) => {
-    playBtn.textContent = voice.lang === "de" && voice.engine === "natural" ? "Preparing voice…" : "Preparing…";
-    speak(lineFor(i), {force:true, translate:true, patient:true, onend:then, onready:() => { playBtn.textContent = "Stop"; }});
+    playBtn.textContent = T("preparing");
+    speak(lineFor(i), {force:true, patient:true, onend:then, onready:() => { playBtn.textContent = T("stop"); }});
   };
   const paint = () => {
-    stage.replaceChildren(stepImage(fam, i, `${ex.n}, step ${i+1}: ${steps[i].title}`), h("span", {class:"stage-step"}, `${i+1} / ${steps.length}`));
-    dots.replaceChildren(...steps.map((s,k) => h("button", {"aria-label":`Step ${k+1}: ${s.title}`, "aria-current":String(k === i), class:k < i ? "seen" : "", onclick:() => { hush(); playingAll = false; i = k; paint(); }})));
+    stage.replaceChildren(stepImage(fam, i, `${exName(ex.n)}, ${T("step")} ${i+1}: ${steps[i].title}`), h("span", {class:"stage-step"}, `${i+1} / ${steps.length}`));
+    dots.replaceChildren(...steps.map((st,k) => h("button", {"aria-label":`${T("step")} ${k+1}: ${st.title}`, "aria-current":String(k === i), class:k < i ? "seen" : "", onclick:() => { hush(); playingAll = false; i = k; paint(); }})));
     content.replaceChildren(...[
       h("h2", {class:"step-title"}, steps[i].title),
       h("p", {class:"step-text"}, steps[i].text),
       steps[i].cue ? h("div", {class:"step-cue"}, steps[i].cue) : null,
       i === steps.length - 1 ? h("div", null,
-        h("div", {class:"feel"}, h("h4", null, "What you should feel"), h("p", {class:"small"}, feelFor(fam))),
-        h("div", {class:"avoid"}, h("h4", null, "Avoid"), h("ul", null, (ex.mistakes||[]).map(m => h("li", null, m))))) : null].filter(Boolean));
+        h("div", {class:"feel"}, h("h4", null, T("feel")), h("p", {class:"small"}, feelOf(fam))),
+        h("div", {class:"avoid"}, h("h4", null, T("avoid")), h("ul", null, exMistakes(ex).map(m => h("li", null, m))))) : null].filter(Boolean));
     prev.disabled = i === 0;
     next.textContent = i === steps.length-1 ? "✓" : "›";
     next.setAttribute("aria-label", i === steps.length-1 ? "Close guide" : "Next step");
-    if(!playingAll) playBtn.textContent = "▶ Talk me through it";
+    if(!playingAll) playBtn.textContent = "▶ " + T("talk");
   };
   const playAll = () => {
     playingAll = true; paint();
@@ -1002,24 +1052,123 @@ function openGuide(ex, talk){
   playBtn.addEventListener("click", () => { if(playingAll){ playingAll = false; hush(); paint(); } else playAll(); });
   prev.addEventListener("click", () => { hush(); playingAll = false; if(i > 0){ i--; paint(); } });
   next.addEventListener("click", () => { hush(); playingAll = false; if(i < steps.length-1){ i++; paint(); } else close(); });
-  // swipe between steps
   let x0 = null;
   stage.addEventListener("touchstart", e => { x0 = e.touches[0].clientX; }, {passive:true});
   stage.addEventListener("touchend", e => { if(x0 == null) return; const dx = e.changedTouches[0].clientX - x0; x0 = null; if(Math.abs(dx) > 50){ hush(); playingAll = false; i = Math.max(0, Math.min(steps.length-1, i + (dx < 0 ? 1 : -1))); paint(); } });
-  const speed = h("select", {"aria-label":"Voice speed"}, [["0.75","Slower"],["0.9","Normal"],["1.05","Faster"]].map(([v,t]) => h("option", {value:v}, t)));
+  const speed = h("select", {"aria-label":T("voiceSpeed")}, [["0.75",T("slower")],["0.9",T("normal")],["1.05",T("faster")]].map(([v,t]) => h("option", {value:v}, t)));
   speed.value = String([0.75,0.9,1.05].reduce((a,b) => Math.abs(b-voice.rate) < Math.abs(a-voice.rate) ? b : a));
   speed.addEventListener("change", () => { voice.rate = Number(speed.value); localStorage.setItem(K.rate, speed.value); });
+  // Language & voice chip: change it here, confirm, and the guide reloads in the new language at the same step.
+  const chip = h("button", {class:"lang-chip", "aria-label":"Change language and voice", onclick:() => {
+    hush(); playingAll = false;
+    openVoiceSheet(() => { close(); if(state && wk) paintExercise(); openGuide(ex, false, i); });
+  }}, `${voice.lang.toUpperCase()} · ${genderLabel(voice.gender)}`);
   inner.append(
     h("div", {class:"ov-top"}, h("button", {class:"icon-btn plain", "aria-label":"Close guide", onclick:close}, "←"),
-      h("div", {class:"t"}, h("b", null, ex.n), h("span", {class:"tag", "data-block":ex.block}, ex.block))),
+      h("div", {class:"t"}, h("b", null, exName(ex.n)), h("span", {class:"tag", "data-block":ex.block}, blockName(ex.block))), chip),
     stage, dots, content,
-    h("div", {class:"voice-opts"}, h("span", {class:"small muted"}, "Voice speed"), speed),
+    h("div", {class:"voice-opts"}, h("span", {class:"small muted"}, T("voiceSpeed")), speed),
     h("div", {class:"guide-bar"}, prev, playBtn, next));
   document.body.append(ov);
   paint();
   // Prepare all five steps in the background, in order, so narration flows without waiting.
-  steps.reduce((p, _, k) => p.then(() => ov.isConnected ? prefetchVoice(lineFor(k), true, true) : null), Promise.resolve());
+  steps.reduce((p, _, k) => p.then(() => ov.isConnected ? prefetchVoice(lineFor(k), false, true) : null), Promise.resolve());
   if(talk) setTimeout(playAll, 250);
+}
+
+/* ---------- Language & voice: choose, then confirm ---------- */
+function voiceEditor(onApplied){
+  const draft = {lang:voice.lang, gender:voice.gender, engine:voice.engine};
+  const box = h("div");
+  const paint = () => {
+    const changed = draft.lang !== voice.lang || draft.gender !== voice.gender || draft.engine !== voice.engine;
+    const row = (label, opts, key) => h("div", null, h("div", {class:"field-label"}, label),
+      h("div", {class:"pick", role:"group"}, opts.map(([v,t]) => h("button", {"aria-pressed":String(draft[key] === v), onclick:() => { draft[key] = v; paint(); }}, t))));
+    box.replaceChildren(
+      row("Language (exercises, guide and voice)", [["en","English"],["de","Deutsch"]], "lang"),
+      row("Voice", [["male","Male"],["female","Female"],["neutral","Neutral"]], "gender"),
+      row("Voice quality", [["natural","Natural"],["device","Phone voice"]], "engine"),
+      h("p", {class:"tiny muted"}, draft.engine === "natural"
+        ? "Natural is a lifelike AI-generated voice (online). Each phrase downloads once and is saved on your phone, so it keeps working offline."
+        : "Phone voice uses your phone's own voices, fully offline. Male or female is set in your phone's text-to-speech settings (see the setup guide in Profile)."),
+      h("div", {class:"apply-row"},
+        h("span", {class:"small " + (changed ? "" : "muted")}, changed
+          ? `New: ${langLabel(draft.lang)} · ${genderLabel(draft.gender)} · ${draft.engine === "natural" ? "Natural" : "Phone voice"}`
+          : `Current: ${langLabel(voice.lang)} · ${genderLabel(voice.gender)} · ${voice.engine === "natural" ? "Natural" : "Phone voice"}`),
+        h("button", {class:"btn primary", disabled:!changed, onclick:() => {
+          voice.lang = draft.lang; voice.gender = draft.gender; voice.engine = draft.engine; voice.name = "";
+          localStorage.setItem(K.lang, voice.lang); localStorage.setItem(K.gender, voice.gender); localStorage.setItem(K.engine, voice.engine); localStorage.setItem(K.voiceName, "");
+          toast(`Applied: ${langLabel(voice.lang)} · ${genderLabel(voice.gender)}`);
+          unlockAudio(); speak(phrase().test, {force:true, patient:true});
+          prefetchWorkoutVoice();
+          onApplied && onApplied();
+          paint();
+        }}, "Confirm")));
+  };
+  paint();
+  return box;
+}
+function openVoiceSheet(onApplied){
+  const close = sheet((card, closeSheet) => {
+    card.append(h("h2", null, "Language & voice"),
+      voiceEditor(() => { closeSheet(); onApplied && onApplied(); }));
+  });
+  return close;
+}
+
+function phoneSetupGuide(){
+  sheet((card) => {
+    const ol = (...items) => h("ol", {class:"howto"}, items.map(x => h("li", null, x)));
+    card.append(h("h2", null, "Set up your phone's voices"),
+      h("p", {class:"small muted"}, "Do this once on Wi-Fi. Then \"Phone voice\" works offline in every language you install, with the male or female voice you pick."),
+      h("h3", {class:"section"}, "1. Choose the Google voice engine"),
+      ol("Open your phone's Settings.", "Search for \"Text-to-speech\" (Samsung: General management › Text-to-speech output).",
+         "Preferred engine: choose Speech Services by Google. If it isn't there, install or update it from the Play Store."),
+      h("h3", {class:"section"}, "2. Download the languages"),
+      ol("Tap the gear icon next to Speech Services by Google › Install voice data.",
+         "Download English (UK or United States) and Deutsch (Deutschland), plus any other language you want.",
+         "Downloaded voices work without internet."),
+      h("h3", {class:"section"}, "3. Pick male or female for each language"),
+      ol("In Install voice data, tap a language you downloaded.",
+         "Tap each voice (Voice I, II, III…) to hear it, and select the one you want.",
+         "Your phone uses that voice for the language, so repeat for English and Deutsch."),
+      h("h3", {class:"section"}, "4. Use it in Zahi Fit"),
+      ol("Fully close Chrome and Zahi Fit (recent apps › swipe away), then reopen so the new voices appear.",
+         "Profile › Language & voice: pick the language and Phone voice, then tap Confirm.",
+         "Tap Test voice. If you hear the wrong voice, choose it in the Phone voice list."),
+      h("p", {class:"small muted section"}, "Tip: for the most lifelike voice, use Natural instead and tap \"Save guides for offline\" on Wi-Fi. Your guides then play in that voice even without signal."));
+  });
+}
+
+/* ---------- Save guide narration for offline use ---------- */
+let offlineJob = null;
+function planGuideLines(){
+  const seen = new Set(), lines = [];
+  workouts.forEach(w => w.exercises.forEach(ex => {
+    if(seen.has(ex.n)) return; seen.add(ex.n);
+    const how = exHow(ex);
+    stepsOf(familyOf(ex)).forEach((st,k) => lines.push(phrase().step(k+1, st[0], st[1], how[k] || null)));
+  }));
+  const p = phrase();
+  [p.ten, p.done, p.good, p.test, ...[20,30,45,60,75,90,120,150].map(p.rest)].forEach(x => lines.push(x));
+  return lines;
+}
+async function saveOffline(btn, status){
+  if(offlineJob){ offlineJob.cancel = true; return; }
+  if(voice.engine !== "natural"){ toast("Choose Natural first. Phone voice already works offline."); return; }
+  if(navigator.onLine === false){ toast("You're offline. Connect to Wi-Fi and try again."); return; }
+  const lines = planGuideLines(), job = offlineJob = {cancel:false};
+  btn.textContent = "Stop";
+  let done = 0, failed = 0;
+  for(const line of lines){
+    if(job.cancel) break;
+    try{ await naturalClip(line, false, true); }catch{ failed++; if(failed >= 3) break; }
+    done++; status.textContent = `Saving ${done} of ${lines.length}…`;
+  }
+  offlineJob = null; btn.textContent = "Save guides for offline";
+  status.textContent = job.cancel ? `Stopped at ${done} of ${lines.length}. Tap again to continue — saved clips are kept.`
+    : failed >= 3 ? "Couldn't reach the voice service. Check your connection and try again; saved clips are kept."
+    : `Done. ${lines.length} clips saved for ${langLabel(voice.lang)} · ${genderLabel(voice.gender)}.`;
 }
 
 /* ---------- Profile & settings ---------- */
@@ -1074,11 +1223,9 @@ function renderProfile(m){
   m.append(h("section", {class:"panel section"}, h("h2", null, "About you"), aboutEditor(ad),
     h("button", {class:"btn block section", onclick:() => { if(!ad.sex || !ad.ageBracket){ toast("Choose both to save."); return; } personal = {...ad}; write(K.personal, personal); toast("Saved."); }}, "Save")));
 
-  // Voice & sound
+  // Language & voice (choose, then Confirm)
   const vpanel = h("section", {class:"panel section"});
-  const paintVoice = () => {
-    const pickRow = (label, opts, cur, set) => h("div", null, h("div", {class:"field-label"}, label),
-      h("div", {class:"pick", role:"group"}, opts.map(([v,t]) => h("button", {"aria-pressed":String(cur === v), onclick:() => { set(v); paintVoice(); }}, t))));
+  const paintVoicePanel = () => {
     const mode = h("select", {"aria-label":"Voice coaching during workouts"}, [["off","Off"],["essential","Rest cues"],["full","Rest cues + encouragement"]].map(([v,t]) => h("option", {value:v}, t)));
     mode.value = voice.mode; mode.addEventListener("change", () => { voice.mode = mode.value; localStorage.setItem(K.voiceMode, voice.mode); });
     const snd = h("select", {"aria-label":"Rest timer sounds"}, h("option", {value:"on"}, "On"), h("option", {value:"off"}, "Off"));
@@ -1094,25 +1241,25 @@ function renderProfile(m){
       vsel.addEventListener("change", () => { voice.name = vsel.value; localStorage.setItem(K.voiceName, voice.name); });
       phoneVoice = h("div", {class:"setting"}, h("span", null, "Phone voice"), vsel);
     }
-    vpanel.replaceChildren(h("h2", null, "Voice & sound"),
-      pickRow("Language", [["en","English"],["de","Deutsch"]], voice.lang, v => { voice.lang = v; voice.name = ""; localStorage.setItem(K.lang, v); localStorage.setItem(K.voiceName, ""); }),
-      pickRow("Voice", [["male","Male"],["female","Female"],["neutral","Neutral"]], voice.gender, v => { voice.gender = v; voice.name = ""; localStorage.setItem(K.gender, v); localStorage.setItem(K.voiceName, ""); }),
-      pickRow("Voice quality", [["natural","Natural"],["device","Phone voice"]], voice.engine, v => { voice.engine = v; localStorage.setItem(K.engine, v); }),
-      h("p", {class:"tiny muted"}, voice.engine === "natural"
-        ? "Natural uses a lifelike AI-generated voice (online). Each phrase downloads once and is then saved on your phone, so rest cues work in the gym without signal. If it can't connect, your phone's voice takes over."
-        : "Uses your phone's built-in voice and works fully offline, but Male, Female and Neutral only change it if your phone has those voices installed, and exercise instructions stay in English. Choose Natural for the lifelike voices and German instructions."),
+    const offBtn = h("button", {class:"btn block"}, "Save guides for offline"), offStatus = h("p", {class:"tiny muted"},
+      "Downloads the spoken guide for every exercise in your plan, in the confirmed language and voice. Use Wi-Fi; it takes a few minutes.");
+    offBtn.addEventListener("click", () => saveOffline(offBtn, offStatus));
+    vpanel.replaceChildren(h("h2", null, "Language & voice"),
+      voiceEditor(paintVoicePanel),
       h("div", {class:"section"}),
       h("div", {class:"setting"}, h("span", null, "During workouts"), mode),
       h("div", {class:"setting"}, h("span", null, "Rest timer sounds"), snd),
       h("div", {class:"setting"}, h("span", null, "Speed"), rate),
       phoneVoice,
-      h("button", {class:"btn primary block", onclick:e => {
+      h("button", {class:"btn block section", onclick:e => {
         const b = e.currentTarget; unlockAudio(); cue.start(); b.textContent = "Preparing…";
-        speak(phrase().test, {force:true, onready:() => { b.textContent = "Playing…"; }, onend:() => { b.textContent = "Test voice"; }});
-        setTimeout(() => { if(b.textContent !== "Test voice") b.textContent = "Test voice"; }, 12000);
-      }}, "Test voice"));
+        speak(phrase().test, {force:true, patient:true, onready:() => { b.textContent = "Playing…"; }, onend:() => { b.textContent = "Test voice"; }});
+        setTimeout(() => { if(b.textContent !== "Test voice") b.textContent = "Test voice"; }, 15000);
+      }}, "Test voice"),
+      voice.engine === "natural" ? h("div", {class:"section"}, offBtn, offStatus) : null,
+      h("button", {class:"btn ghost block", onclick:phoneSetupGuide}, "How to set up your phone's voices"));
   };
-  paintVoice();
+  paintVoicePanel();
   m.append(vpanel);
 
   // Data
