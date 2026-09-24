@@ -1,7 +1,7 @@
 /* Zahi Fit v4 service worker.
    Core files are precached per release; exercise images are cached the first time they're viewed.
    A new version waits until the user taps "Update" so the app never reloads mid-set. */
-const VERSION = "4.0.0";
+const VERSION = "4.1.0";
 const CORE = `zahi-fit-core-${VERSION}`;
 const MEDIA = "zahi-fit-media-v1";
 const ASSETS = [
@@ -18,7 +18,7 @@ self.addEventListener("install", e => {
 self.addEventListener("message", e => { if(e.data && e.data.type === "SKIP_WAITING") self.skipWaiting(); });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys()
-    .then(keys => Promise.all(keys.filter(k => k !== CORE && k !== MEDIA).map(k => caches.delete(k))))
+    .then(keys => Promise.all(keys.filter(k => k !== CORE && k !== MEDIA && !k.startsWith("zahi-fit-voice")).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", e => {
