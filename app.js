@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.5.0";
+const VERSION = "4.7.0";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -13,7 +13,7 @@ const K = {
   rate:"zahiFitVoiceRateV312", voiceName:"zahiFitVoiceNameV313",
   chat:"zahiFitPTConversationV26", onboarded:"zahiFitOnboardedV4",
   lang:"zahiFitVoiceLangV41", gender:"zahiFitVoiceGenderV41", engine:"zahiFitVoiceEngineV41",
-  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44"
+  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44", videoPick:"zahiFitVideoPickV47"
 };
 
 /* ---------- tiny helpers ---------- */
@@ -50,7 +50,7 @@ const HEIGHT = {Strength:5, Power:4, Hypertrophy:4, Conditioning:3, Durability:3
    Each person has their own history, plan, profile, voice settings, coach chat and in-progress workout.
    The first person keeps the original storage keys, so existing data needs no migration. */
 const USERS_KEY = "zahiFitUsersV45";
-const DEVICE_KEYS = ["installHide"];                 // shared by everyone on this phone
+const DEVICE_KEYS = ["installHide", "videoPick"];                 // shared by everyone on this phone
 const BASE_K = {...K};
 const nsKey = (id, base) => id === "main" ? base : `zf.${id}.${base}`;
 function loadUsers(){
@@ -110,62 +110,158 @@ function sheet(build){
   return close;
 }
 
-/* ---------- plan (from v2.5 planner) ---------- */
+/* ---------- plan ---------- */
 const GOALS = {
   fat_loss:"Fat loss", muscle:"Muscle gain", strength:"Strength",
   endurance:"Endurance", athletic:"Athletic fitness", mobility:"Mobility & flexibility"
 };
+const EQUIPMENT = {gym:"Gym", bodyweight:"Bodyweight"};
 function loadPlan(){
   const p = read(K.plan, null);
   if(p && p.days >= 2 && p.days <= 6 && GOALS[p.primary]) return {
     days:Number(p.days), primary:p.primary,
     secondary:Array.isArray(p.secondary) ? p.secondary.filter(x => GOALS[x] && x !== p.primary).slice(0,3) : [],
-    duration:[60,75,90].includes(Number(p.duration)) ? Number(p.duration) : 75
+    duration:[60,75,90].includes(Number(p.duration)) ? Number(p.duration) : 75,
+    equipment:EQUIPMENT[p.equipment] ? p.equipment : "gym"
   };
-  return {days:4, primary:"fat_loss", secondary:["muscle"], duration:75};
+  return {days:4, primary:"fat_loss", secondary:["muscle"], duration:75, equipment:"gym"};
 }
 let plan = loadPlan();
 const library = () => [...PROGRAM.flatMap(w => w.exercises), ...EXTRA];
 const findEx = n => library().find(x => x.n === n);
-const session = (name, focus, names) => ({name, duration:plan.duration, focus, exercises:names.map(findEx).filter(Boolean).map(clone)});
-function condFor(g){ return {endurance:"Bike Intervals", fat_loss:"StairMaster Intervals", athletic:"CrossFit Engine Circuit", mobility:"StairMaster Steady State"}[g] || "Bike Intervals"; }
-function booster(slot){
-  const g = plan.primary, one = slot === 1;
-  const B = {
-    muscle:[one?"E — Hypertrophy Booster":"F — Muscle + Core","Extra hypertrophy volume, balanced upper and lower work, controlled conditioning",
-      one?["Thoracic Rotation","Incline Dumbbell Press","Lat Pulldown","Hip Thrust","Hamstring Curl","Pallof Press","Bike Intervals","Doorway Pec Stretch"]
-         :["Hip 90/90 Flow","Dumbbell Shoulder Press","Chest-Supported Row","Bulgarian Split Squat","Dumbbell Romanian Deadlift","Farmer Carry","StairMaster Steady State","Figure-4 Glute Stretch"]],
-    strength:[one?"E — Strength Technique":"F — Strength + Carry","Submaximal strength practice, technical quality, trunk durability",
-      one?["World's Greatest Stretch","Front Squat","Bench Press","Chest-Supported Row","Farmer Carry","Pallof Press","Bike Intervals","Hip Flexor + Rotation Stretch"]
-         :["Hip 90/90 Flow","Deadlift","Incline Dumbbell Press","Bulgarian Split Squat","Lat Pulldown","Farmer Carry","StairMaster Steady State","Supine Hamstring Stretch"]],
-    endurance:[one?"E — Engine Development":"F — Aerobic + Mobility","Cardiovascular endurance, repeatable output, mobility and trunk control",
-      one?["Inchworm to Down Dog","Kettlebell Swing","Push-up + Renegade Row","Bike Intervals","Pallof Press","Hip Flexor + Rotation Stretch"]
-         :["Deep Squat Pry","Step-Down Control","StairMaster Steady State","Farmer Carry","Adductor Rockback Stretch","Calf Wall Stretch"]],
-    athletic:[one?"E — Athletic Power":"F — Work Capacity","Power, work capacity, total-body durability",
-      one?["Deep Squat Pry","Front Squat","Kettlebell Swing","Push-up + Renegade Row","Farmer Carry","Bike Intervals","Figure-4 Glute Stretch"]
-         :["Inchworm to Down Dog","Bulgarian Split Squat","Incline Dumbbell Press","Single-Arm Cable Row","CrossFit Engine Circuit","Pallof Press","Hip Flexor + Rotation Stretch"]],
-    mobility:[one?"E — Mobility + Durability":"F — Movement Quality","Mobility, flexibility, low-impact durability, easy aerobic work",
-      one?["Hip 90/90 Flow","World's Greatest Stretch","Thoracic Rotation","Pallof Press","Step-Down Control","StairMaster Steady State","Couch Stretch","Supine Hamstring Stretch"]
-         :["Ankle Dorsiflexion Rock","Cossack Squat","Deep Squat Pry","Farmer Carry","Bike Intervals","Doorway Pec Stretch","Figure-4 Glute Stretch"]],
-    fat_loss:[one?"E — Metabolic Conditioning":"F — Fat-Loss Engine","Conditioning, full-body work capacity, muscle retention",
-      one?["World's Greatest Stretch","Kettlebell Swing","Incline Dumbbell Press","Single-Arm Cable Row","CrossFit Engine Circuit","Pallof Press","Figure-4 Glute Stretch"]
-         :["Hip 90/90 Flow","Bulgarian Split Squat","Dumbbell Shoulder Press","Farmer Carry","StairMaster Intervals","Couch Stretch"]]
-  }[g] || null;
-  return session(...(B || []));
+
+/* ---------- programme builder ----------
+   Builds the week from: days, main goal, secondary goals, session length and equipment.
+   1) the main goal picks the weekly split and each session's recipe;
+   2) the main goal sets sets / reps / rest for each slot;
+   3) each secondary goal adds its own emphasis;
+   4) session length trims or extends;
+   5) sessions of the same type rotate exercises so A and C differ. */
+const SPLITS = {
+  heavy:   {2:["full","full"], 3:["lower","upper","full"], 4:["lower","upper","lower","upper"], 5:["lower","upper","full","lower","upper"], 6:["lower","upper","full","lower","upper","engine"]},
+  engine:  {2:["full","full"], 3:["full","engine","full"], 4:["lower","upper","engine","full"], 5:["lower","upper","engine","full","engine"], 6:["lower","upper","engine","lower","upper","engine"]},
+  mobility:{2:["full","mobility"], 3:["full","mobility","full"], 4:["full","mobility","full","mobility"], 5:["full","mobility","lower","mobility","upper"], 6:["lower","mobility","upper","mobility","full","mobility"]}
+};
+const RECIPES = {
+  lower:   [["mobLower","mob"],["mobLower","mob"],["squat","main"],["hinge","main2"],["lunge","acc"],["glute","acc"],["durability","core"],["interval","cond"],["flexLower","flex"]],
+  upper:   [["mobUpper","mob"],["mobUpper","mob"],["pushH","main"],["pullH","main2"],["pushV","acc"],["pullV","acc"],["core","core"],["interval","cond"],["flexUpper","flex"]],
+  full:    [["mobLower","mob"],["mobUpper","mob"],["squat|hinge","main"],["pushH","main2"],["pullH","acc"],["lunge","acc"],["core","core"],["interval","cond"],["flexLower","flex"]],
+  engine:  [["mobLower","mob"],["power","power"],["circuit","circuit"],["pullH","acc"],["core","core"],["steady","cond"],["flexLower","flex"]],
+  mobility:[["mobLower","mob"],["mobUpper","mob"],["mobLower","mob"],["durability","core"],["core","core"],["steady","easy"],["flexLower","flex"],["flexUpper","flex"]]
+};
+/* [sets, reps, rest] per goal and slot; reps null = keep the exercise's own (time-based) target */
+const RX = {
+  strength: {main:[5,"5",150], main2:[4,"6",120], acc:[3,"8",90],  core:[3,null,60], power:[4,"5",90],  cond:[4,null,0], circuit:[3,null,90]},
+  muscle:   {main:[4,"8",120], main2:[4,"10",90], acc:[3,"12",75], core:[3,null,45], power:[3,"8",75],  cond:[4,null,0], circuit:[3,null,75]},
+  fat_loss: {main:[3,"10",75], main2:[3,"12",60], acc:[3,"15",45], core:[3,null,30], power:[4,"12",45], cond:[8,null,0], circuit:[5,null,60]},
+  endurance:{main:[3,"12",60], main2:[3,"12",60], acc:[2,"15",45], core:[3,null,30], power:[3,"12",45], cond:[6,null,0], circuit:[5,null,60]},
+  athletic: {main:[4,"5",120], main2:[3,"8",90],  acc:[3,"10",60], core:[3,null,45], power:[5,"6",75],  cond:[6,null,0], circuit:[5,null,60]},
+  mobility: {main:[3,"8",90],  main2:[3,"10",75], acc:[2,"12",60], core:[3,null,45], power:[3,"8",60],  cond:[4,null,0], circuit:[3,null,60]}
+};
+/* Bodyweight can't go heavy, so reps rise and the lowering slows instead. */
+const RX_BW = {
+  strength:{main:"6–10 (3 s down)", main2:"8–12 (3 s down)", acc:"10–12"}, muscle:{main:"10–15", main2:"12–15", acc:"15–20"},
+  fat_loss:{main:"12–15", main2:"15", acc:"15–20"}, endurance:{main:"15–20", main2:"20", acc:"20"},
+  athletic:{main:"8–10", main2:"10", acc:"12"}, mobility:{main:"8–10", main2:"10", acc:"12"}
+};
+const STEADY_MIN = {endurance:"30–40 min", fat_loss:"25–30 min", mobility:"15–20 min easy"};
+const TITLES = {
+  lower:   {strength:"Lower Strength", muscle:"Lower Muscle", fat_loss:"Lower-Body Burn", endurance:"Lower Endurance", athletic:"Lower Power", mobility:"Lower Strength & Mobility"},
+  upper:   {strength:"Upper Strength", muscle:"Upper Muscle", fat_loss:"Upper-Body Burn", endurance:"Upper Endurance", athletic:"Upper Power", mobility:"Upper Strength & Posture"},
+  full:    {strength:"Full-Body Strength", muscle:"Full-Body Muscle", fat_loss:"Full-Body Fat Burn", endurance:"Full-Body Endurance", athletic:"Full-Body Athletic", mobility:"Full-Body Movement"},
+  engine:  {strength:"Conditioning", muscle:"Conditioning", fat_loss:"Metabolic Engine", endurance:"Engine Builder", athletic:"Power & Engine", mobility:"Easy Engine"},
+  mobility:{strength:"Mobility & Recovery", muscle:"Mobility & Recovery", fat_loss:"Mobility & Recovery", endurance:"Mobility & Recovery", athletic:"Mobility & Recovery", mobility:"Mobility Flow"}
+};
+const FOCUS_TEXT = {lower:"Squat, hinge and single-leg work", upper:"Push and pull strength", full:"Total-body strength",
+  engine:"Power, circuit and conditioning", mobility:"Mobility, core control and easy cardio"};
+const SECONDARY_SLOT = {                       // what each secondary goal adds to a session
+  muscle:   f => ({lower:["ham","acc"], upper:["pushH","acc"], full:["glute","acc"], engine:["pushH","acc"]})[f],
+  strength: () => "mainSet",
+  fat_loss: f => f === "mobility" ? null : ["interval","finisher"],
+  endurance:() => "condLonger",
+  athletic: f => f === "mobility" ? null : ["power","power"],
+  mobility: f => f === "lower" || f === "full" ? ["flexLower","flex"] : ["mobUpper","mob"]
+};
+
+function buildWeek(p = plan){
+  const goal = p.primary, eq = POOLS[p.equipment] ? p.equipment : "gym", pools = POOLS[eq];
+  const splitKey = ["strength","muscle"].includes(goal) ? "heavy" : goal === "mobility" ? "mobility" : "engine";
+  const split = SPLITS[splitKey][p.days];
+  const seen = {};
+  return split.map((focus, idx) => {
+    const rot = seen[focus] = (seen[focus] ?? -1) + 1;   // 0 for the first "lower", 1 for the second…
+    let recipe = RECIPES[focus].map(r => r.slice());
+    // secondary goals
+    let extraMainSet = 0, condLonger = false;
+    p.secondary.forEach(g => {
+      const add = SECONDARY_SLOT[g] && SECONDARY_SLOT[g](focus);
+      if(add === "mainSet") extraMainSet = 1;
+      else if(add === "condLonger") condLonger = true;
+      else if(Array.isArray(add)){
+        const at = add[1] === "power" ? 2 : add[1] === "flex" ? recipe.length : add[1] === "mob" ? 1 : add[1] === "finisher" ? recipe.length - 1 : recipe.findIndex(r => r[1] === "core");
+        recipe.splice(Math.max(0, at), 0, add);
+      }
+    });
+    if(goal === "mobility" && focus !== "mobility") recipe.splice(1, 0, ["mobLower","mob"], ["flexUpper","flex"]);
+    if(goal === "athletic" && !recipe.some(r => r[1] === "power")) recipe.splice(2, 0, ["power","power"]);
+    // session length
+    if(p.duration === 60){
+      const drop = (role) => { const i = recipe.map(r => r[1]).lastIndexOf(role); if(i >= 0) recipe.splice(i, 1); };
+      drop("mob"); drop("acc"); if(recipe.filter(r => r[1] === "flex").length > 1) drop("flex");
+    }else if(p.duration === 90){
+      const extra = {lower:["ham","acc"], upper:["pullV","acc"], full:["glute","acc"], engine:["lunge","acc"], mobility:["mobUpper","mob"]}[focus];
+      recipe.splice(Math.max(0, recipe.findIndex(r => r[1] === "core")), 0, extra);
+      recipe.push([focus === "upper" ? "flexUpper" : "flexLower", "flex"]);
+    }
+    // pick exercises: rotate within each pool, never repeat within a session
+    const used = new Set(), exercises = [];
+    recipe.forEach(([poolKey, role], k) => {
+      const keys = poolKey.split("|"), key = keys[(rot + idx) % keys.length];
+      const pool = pools[key] || [];
+      if(!pool.length) return;
+      let pick = null;
+      for(let t = 0; t < pool.length; t++){ const n = pool[(rot + k + t) % pool.length]; if(!used.has(n)){ pick = n; break; } }
+      if(!pick) return;
+      const src = findEx(pick); if(!src) return;
+      used.add(pick);
+      exercises.push(prescribe(clone(src), role, goal, eq, {extraMainSet, condLonger}));
+    });
+    const letter = String.fromCharCode(65 + idx);
+    const secondary = p.secondary.map(x => GOALS[x]).join(", ");
+    return {
+      name:`${letter} — ${TITLES[focus][goal]}`,
+      duration:p.duration,
+      focus:`${FOCUS_TEXT[focus]} · ${GOALS[goal]}${secondary ? ` + ${secondary}` : ""} · ${EQUIPMENT[eq]}`,
+      exercises
+    };
+  });
 }
-function buildWeek(){
-  const cond = condFor(plan.primary);
-  if(plan.days === 2) return [
-    session("A — Full Body Strength + Engine","Full-body strength, muscle, conditioning",
-      ["Hip 90/90 Flow","Deadlift","Bench Press","Bulgarian Split Squat","Chest-Supported Row","Farmer Carry",cond,"Couch Stretch"]),
-    session("B — Full Body Athletic + Engine","Squat strength, upper and lower muscle, trunk durability, conditioning",
-      ["Deep Squat Pry","Front Squat","Incline Dumbbell Press","Single-Arm Cable Row","Hip Thrust","Pallof Press",cond,"Figure-4 Glute Stretch"])];
-  const base = PROGRAM.map(w => ({...clone(w), duration:plan.duration}));
-  if(plan.days === 3) return base.slice(0,3).map((w,i) => ({...w, name:["A — Posterior Strength + Engine","B — Upper Strength + Engine","C — Full-Body Athletic"][i]}));
-  if(plan.days === 4) return base;
-  if(plan.days === 5) return [...base, booster(1)];
-  return [...base, booster(1), booster(2)];
+function prescribe(x, role, goal, eq, {extraMainSet, condLonger}){
+  const rx = RX[goal][role === "finisher" ? "cond" : role];
+  const perSide = /\/(leg|side)/.exec(x.reps);
+  const hold = typeof HOLD_EXERCISES !== "undefined" && HOLD_EXERCISES.has(x.n);
+  if(role === "mob" || role === "flex") return x;                       // keep mobility & stretching as written
+  if(role === "easy"){ x.sets = 1; x.reps = STEADY_MIN.mobility; return x; }
+  if(x.block === "Conditioning"){
+    if(/Steady|Walk/.test(x.n)){ x.sets = 1; x.reps = STEADY_MIN[goal] || (condLonger ? "25–30 min" : "20–25 min"); if(condLonger && goal !== "endurance") x.reps = "25–35 min"; return x; }
+    if(role === "circuit"){ x.sets = rx[0] + (condLonger ? 1 : 0); x.rest = rx[2]; return x; }
+    x.sets = role === "finisher" ? 4 : rx[0] + (condLonger ? 2 : 0);
+    return x;
+  }
+  if(!rx) return x;
+  x.sets = rx[0] + ((role === "main" || role === "main2") ? extraMainSet : 0);
+  x.rest = x.bw ? Math.min(rx[2], 90) : rx[2];          // no heavy loads, so shorter rests
+  if(rx[1] && !hold){
+    let reps = x.bw ? (role === "power" ? "8–10" : (RX_BW[goal][role] || RX_BW[goal].acc)) : rx[1];
+    // Safety caps: technical barbell lifts and hard bodyweight moves don't go to very high reps.
+    const cap = REP_CAPS[x.n], top = str => Math.max(...(String(str).match(/\d+/g) || [0]).map(Number));
+    if(cap && top(reps) > top(cap)) reps = cap;
+    x.reps = perSide ? reps.replace(/^([^(]+?)(\s*\(.*\))?$/, (_, r, t) => `${r}/${perSide[1]}${t || ""}`) : reps;
+  }
+  return x;
 }
+const REP_CAPS = {"Deadlift":"8", "Front Squat":"10", "Bench Press":"10", "Kettlebell Deadlift":"12", "Pike Push-up":"6–12",
+  "Jump Squat":"8–10", "Inverted Row":"8–15", "Chair Dips":"8–15", "Single-Leg Romanian Deadlift":"8–12"};
 let workouts = buildWeek();
 let nextIndex = (Number(localStorage.getItem(K.next)) || 0) % workouts.length;
 
@@ -246,6 +342,10 @@ function adaptWorkout(w, r){
 /* ---------- tracking + progression (from v2.4) ---------- */
 function trackingType(ex){
   if(ex.block === "Mobility" || ex.block === "Flexibility") return "repsTime";
+  if(ex.bw || (typeof BW_NAMES !== "undefined" && BW_NAMES.has(ex.n))){
+    if(HOLD_EXERCISES.has(ex.n)) return "hold";
+    return ex.block === "Conditioning" ? "bwCond" : "bwReps";
+  }
   if(ex.block === "Conditioning"){ if(/Bike/i.test(ex.n)) return "bike"; if(/StairMaster/i.test(ex.n)) return "stair"; return "conditioning"; }
   if(/Carry/i.test(ex.n)) return "carry";
   return "loadReps";
@@ -255,7 +355,7 @@ function prevLine(ex, prev){
   const t = trackingType(ex);
   const rows = prev.sets.map((s,i) => {
     if(prev.done && prev.done[i] === false) return null;
-    if(t === "repsTime") return s.r || null;
+    if(["repsTime","bwReps","hold","bwCond"].includes(t)) return s.r || null;
     if(t === "bike" || t === "stair") return s.w || s.r ? `${s.w ? (t==="bike"?"res ":"lvl ")+s.w : ""}${s.w&&s.r?" · ":""}${s.r||""}` : null;
     if(t === "carry") return s.w || s.r ? `${s.w||"–"} kg · ${s.r||"–"}` : null;
     return s.w || s.r ? `${s.w||"–"}×${s.r||"–"}` : null;
@@ -264,6 +364,20 @@ function prevLine(ex, prev){
 }
 function suggestion(ex, prev, reduced){
   const t = trackingType(ex), de = isDE();
+  if(t === "hold") return reduced ? (de ? "Heute kürzer halten und die Position perfekt sauber lassen." : "Shorter holds today; keep the position perfect.")
+    : (de ? "Füge 5–10 Sekunden hinzu, sobald jeder Durchgang stabil bleibt." : "Add 5–10 seconds once every hold stays solid.");
+  if(t === "bwCond") return reduced ? (de ? "Gleichmäßiges, lockeres Tempo. Qualität vor Geschwindigkeit." : "Easy, steady pace. Quality before speed.")
+    : (de ? "Halte das Tempo über alle Runden gleich; steigere erst, wenn die letzte Runde sauber bleibt." : "Keep every round at the same pace; build only when the last round stays clean.");
+  if(t === "bwReps"){
+    const reps = prev && Array.isArray(prev.sets) ? prev.sets.filter((q,i) => !prev.done || prev.done[i] !== false).map(q => num(q.r)).filter(v => v != null) : [];
+    if(!reps.length) return reduced ? (de ? "Heute leicht: jeden Satz mit 3–4 sauberen Wiederholungen Reserve beenden." : "Easy today: stop each set with 3–4 clean reps left.")
+      : (de ? "Beende jeden Satz mit 2–3 sauberen Wiederholungen Reserve." : "Stop each set with 2–3 clean reps left in the tank.");
+    const best = Math.max(...reps), rpe = Number(prev.rpe || 8);
+    if(reduced) return de ? `Heute: etwa ${Math.max(1, best - 2)} Wiederholungen pro Satz, ruhiges Tempo.` : `Today: about ${Math.max(1, best - 2)} reps per set, smooth tempo.`;
+    if(rpe <= 7) return de ? `Letztes Mal war kontrolliert. Ziel: ${best + 2} Wiederholungen, oder 3 Sekunden absenken.` : `Last time felt controlled. Aim for ${best + 2} reps, or slow the lowering to 3 seconds.`;
+    if(rpe >= 9) return de ? `Letztes Mal war sehr schwer. Bleib bei ${best} Wiederholungen und pausiere etwas länger.` : `Last time was very hard. Stay at ${best} reps and rest a little longer.`;
+    return de ? `Ziel: ${best}–${best + 1} Wiederholungen mit sauberer Technik.` : `Aim for ${best}–${best + 1} reps with clean form.`;
+  }
   if(t === "repsTime") return ex.block === "Flexibility"
     ? (reduced ? (de ? "Heute nur im angenehmen Bereich. Die Endposition nicht erzwingen." : "Comfortable range only today. Don't force end range.")
                : (de ? "Ruhiger atmen und etwas mehr schmerzfreien Umfang anstreben." : "Aim for smoother breathing and slightly more pain-free range."))
@@ -338,22 +452,22 @@ const phrase = () => SAY[voice.lang];
    Data keys stay English, so history and load suggestions are shared across languages. */
 const isDE = () => voice.lang === "de" && typeof DE !== "undefined";
 const UI = {
-  en:{of:"of", rest:"rest", continuous:"continuous", replacing:"Replacing", howTo:"How to do it", howToSub:"5-step photo guide with voice coaching",
+  en:{of:"of", rest:"rest", continuous:"continuous", replacing:"Replacing", howTo:"How to do it", howToSub:"Video demo + 5-step guide with voice",
     kg:"kg", reps:"Reps", done:"Done", repsTime:"Reps / time", timeSide:"Time / side", resistance:"Resistance", time:"Time", level:"Level",
     loadLevel:"Load / level", rounds:"Rounds / time", distance:"Distance", addSet:"+ Add a set", howHard:"How hard was it?", howHardSub:" Guides next time's load.",
     easy:"Easy", good:"Good", hard:"Hard", veryHard:"Very hard", steady:"Steady", technique:"Technique", doIt:"Do", avoid:"Avoid",
     stepGuide:"Step-by-step guide", talk:"Talk me through it", next:"Next", finish:"Finish workout", skipped:"You skipped this exercise. It won't count toward today's progress.",
     include:"Include it again", feel:"What you should feel", voiceSpeed:"Voice speed", slower:"Slower", normal:"Normal", faster:"Faster",
     preparing:"Preparing voice…", stop:"Stop", restLbl:"Rest", skip:"Skip", exercises:"Exercises", setsDone:"of today's sets done",
-    skippedState:"skipped", doneState:"done", step:"step"},
-  de:{of:"von", rest:"Pause", continuous:"durchgehend", replacing:"Ersetzt", howTo:"So geht's", howToSub:"5-Schritte-Fotoanleitung mit Sprachcoach",
+    skippedState:"skipped", doneState:"done", step:"step", stepByStep:"Step by step", watch:"Watch the demo", openYT:"Open in YouTube", changeVideo:"Change video", findYT:"Find a video on YouTube", addVideo:"Add a video", offlineVideo:"Videos need internet. The steps and voice below work offline.", tapStep:"Tap a step to read it, or let the coach talk you through."},
+  de:{of:"von", rest:"Pause", continuous:"durchgehend", replacing:"Ersetzt", howTo:"So geht's", howToSub:"Video + 5-Schritte-Anleitung mit Sprachcoach",
     kg:"kg", reps:"Wdh.", done:"Fertig", repsTime:"Wdh. / Zeit", timeSide:"Zeit / Seite", resistance:"Widerstand", time:"Zeit", level:"Stufe",
     loadLevel:"Last / Stufe", rounds:"Runden / Zeit", distance:"Strecke", addSet:"+ Satz hinzufügen", howHard:"Wie anstrengend war es?", howHardSub:" Bestimmt das Gewicht beim nächsten Mal.",
     easy:"Leicht", good:"Gut", hard:"Schwer", veryHard:"Sehr schwer", steady:"Gleichmäßig", technique:"Technik", doIt:"Achte auf", avoid:"Vermeide",
     stepGuide:"Schritt für Schritt", talk:"Anleitung vorlesen", next:"Weiter", finish:"Training beenden", skipped:"Du hast diese Übung übersprungen. Sie zählt heute nicht zum Fortschritt.",
     include:"Wieder aufnehmen", feel:"Was du spüren solltest", voiceSpeed:"Sprechtempo", slower:"Langsamer", normal:"Normal", faster:"Schneller",
     preparing:"Stimme wird vorbereitet…", stop:"Stopp", restLbl:"Pause", skip:"Überspringen", exercises:"Übungen", setsDone:"der heutigen Sätze erledigt",
-    skippedState:"übersprungen", doneState:"fertig", step:"Schritt"}
+    skippedState:"übersprungen", doneState:"fertig", step:"Schritt", stepByStep:"Schritt für Schritt", watch:"Demo ansehen", openYT:"In YouTube öffnen", changeVideo:"Video ändern", findYT:"Video auf YouTube suchen", addVideo:"Video hinzufügen", offlineVideo:"Videos brauchen Internet. Die Schritte und die Stimme unten funktionieren offline.", tapStep:"Tippe auf einen Schritt oder lass dich vom Coach durchführen."}
 };
 const T = k => (isDE() ? UI.de : UI.en)[k] ?? UI.en[k] ?? k;
 const exName = n => isDE() ? (DE.names[n] || n) : n;
@@ -363,7 +477,7 @@ const exMistakes = ex => isDE() && DE.ex[ex.n] ? DE.ex[ex.n][2] : (ex.mistakes |
 const blockName = b => isDE() ? (DE.blocks[b] || b) : b;
 const repsText = r => isDE() ? DE.reps(r) : r;
 const stepsOf = fam => (isDE() ? (DE.steps[fam] || DE.steps.circuit) : (STEPS[fam] || STEPS.circuit));
-const feelOf = fam => isDE() ? (DE.feel[fam] || "Die Zielmuskeln arbeiten kontrolliert und schmerzfrei.") : feelFor(fam);
+const feelOf = fam => isDE() ? (DE.feel[fam] || "Die Zielmuskeln arbeiten kontrolliert und schmerzfrei.") : ((typeof FEEL_EXTRA !== "undefined" && FEEL_EXTRA[fam]) || feelFor(fam));
 const ADAPT_DE = {
   recovery60:["Regenerationseinheit","Kurz und locker: 3–4 Wiederholungen in Reserve, weniger Sätze, sanfte Ausdauer."],
   reduced:["Reduzierte Last","3–4 Wiederholungen in Reserve, weniger Zusatzvolumen, kontrollierte Ausdauer."],
@@ -609,7 +723,7 @@ function renderToday(m){
   // Programme tiles
   m.append(h("section", {class:"section"},
     h("div", {class:"section-head"}, h("h2", null, `Your ${plan.days}-day plan`), h("button", {class:"btn ghost sm", onclick:() => go("profile")}, "Edit plan")),
-    h("p", {class:"muted small"}, [GOALS[plan.primary], ...plan.secondary.map(x => GOALS[x])].join(", ") + ` · ${plan.duration} min sessions`),
+    h("p", {class:"muted small"}, [GOALS[plan.primary], ...plan.secondary.map(x => GOALS[x])].join(", ") + ` · ${plan.duration} min · ${EQUIPMENT[plan.equipment]}`),
     h("div", {class:"tiles"}, workouts.map((x,i) => {
       const n = splitName(x.name);
       return h("button", {class:"tile" + (i === nextIndex ? " is-next" : ""), "data-tone":i % 4, onclick:() => state ? toast("Finish or discard the current workout first.") : go("checkin", i)},
@@ -723,13 +837,18 @@ function paintExercise(){
 
   const last = prevLine(ex, prev);
   b.append(h("div", {class:"advice", "data-block":ex.block}, suggestion(ex, prev, reducedDay()), last ? h("span", {class:"last"}, last) : null));
-  const fam = familyOf(ex);
-  b.append(h("button", {class:"guide-launch", onclick:() => openGuide(ex)}, stepImage(fam, 0, ""),
+  const vid = videoFor(ex);
+  const thumb = h("span", {class:"launch-thumb", "aria-hidden":"true"}, vid ? h("img", {src:ytThumb(vid), alt:"", loading:"lazy"}) : null, h("span", {class:"play"}, "▶"));
+  thumb.querySelector("img")?.addEventListener("error", e => e.target.remove());
+  b.append(h("button", {class:"guide-launch", onclick:() => openGuide(ex)}, thumb,
     h("div", null, h("b", null, T("howTo")), h("span", null, T("howToSub")))));
 
   // Set logger
-  const simple = type === "repsTime";
+  const simple = ["repsTime","bwReps","hold","bwCond"].includes(type);
   const cols = type === "repsTime" ? ["", ex.block === "Flexibility" ? T("timeSide") : T("repsTime"), T("done")]
+    : type === "bwReps" ? ["", T("reps"), T("done")]
+    : type === "hold" ? ["", T("time"), T("done")]
+    : type === "bwCond" ? ["", T("rounds"), T("done")]
     : type === "bike" ? ["", T("resistance"), T("time"), T("done")]
     : type === "stair" ? ["", T("level"), T("time"), T("done")]
     : type === "conditioning" ? ["", T("loadLevel"), T("rounds"), T("done")]
@@ -741,9 +860,9 @@ function paintExercise(){
     const p = prev && prev.sets && prev.sets[i] && !(prev.done && prev.done[i] === false) ? prev.sets[i] : null;
     const phW = p && p.w ? p.w : (type === "loadReps" || type === "carry" ? "kg" : "–");
     const phR = p && p.r ? p.r : repsText(ex.reps);
-    const rIn = h("input", {inputmode:simple || type==="conditioning" || type==="bike" || type==="stair" ? "text" : "numeric", value:s.r, placeholder:phR, "aria-label":`Set ${i+1} ${cols[simple?1:2]}`, maxlength:"40"});
+    const rIn = h("input", {inputmode:type === "bwReps" ? "numeric" : simple || type==="conditioning" || type==="bike" || type==="stair" ? "text" : "numeric", value:s.r, placeholder:phR, "aria-label":`Set ${i+1} ${cols[simple?1:2]}`, maxlength:"40"});
     rIn.addEventListener("input", () => { s.r = rIn.value.slice(0,40); persist(); });
-    if(simple || String(phR).length > 6) rIn.classList.add("txt");
+    if((simple && type !== "bwReps") || String(phR).length > 6) rIn.classList.add("txt");
     const tick = h("button", {class:"tick", "aria-pressed":String(!!s.done), "aria-label":`Mark set ${i+1} ${s.done ? "not done" : "done"}`}, "✓");
     let wIn = null;
     const row = h("div", {class:"set" + (simple ? " simple" : "") + (s.done ? " done" : "") + (i === current ? " current" : "")}, h("span", {class:"n"}, i+1));
@@ -777,7 +896,7 @@ function paintExercise(){
   if(ex.sets.length < 12) b.append(h("button", {class:"btn ghost sm", onclick:() => { const l = ex.sets[ex.sets.length-1]; ex.sets.push({w:l?.w||"", r:"", done:false}); persist(); paintExercise(); }}, T("addSet")));
 
   // Effort
-  if(!simple){
+  if(type !== "repsTime"){
     const labels = ex.block === "Conditioning" ? [[T("easy"),6],[T("steady"),7],[T("hard"),8],[T("veryHard"),9]] : [[T("easy"),6],[T("good"),7],[T("hard"),8],[T("veryHard"),9]];
     const seg = h("div", {class:"seg", role:"group", "aria-label":"How hard was it"});
     labels.forEach(([t,v]) => seg.append(h("button", {"aria-pressed":String(ex.rpe === v), onclick:() => { ex.rpe = ex.rpe === v ? null : v; persist(); paintExercise(); }}, t, h("small", null, `RPE ${v}`))));
@@ -833,13 +952,24 @@ function substituteFlow(){
 }
 function alternatives(reason){
   const ex = curEx();
-  const pool = library().filter(x => x.n !== ex.n && !state.exercises.some(y => y.n === x.n));
+  const allowed = new Set(Object.values(POOLS[plan.equipment] || POOLS.gym).flat());
+  const pool = library().filter(x => x.n !== ex.n && !state.exercises.some(y => y.n === x.n) && allowed.has(x.n));
   const same = ["Strength","Hypertrophy"].includes(ex.block) ? pool.filter(x => ["Strength","Hypertrophy"].includes(x.block)) : pool.filter(x => x.block === ex.block);
   const seen = new Set();
-  const opts = [...(ex.subs||[]).map(findEx).filter(Boolean), ...same].filter(x => !seen.has(x.n) && seen.add(x.n)).slice(0,6);
+  // Same movement pattern first (e.g. push for push), then the exercise's listed swaps, then same training type.
+  const eqPools = POOLS[plan.equipment] || POOLS.gym;
+  const peers = Object.values(eqPools).filter(list => list.includes(ex.n)).flat().map(findEx).filter(x => x && x.n !== ex.n && !state.exercises.some(y => y.n === x.n));
+  const subs = (ex.subs||[]).map(findEx).filter(x => x && allowed.has(x.n) && !state.exercises.some(y => y.n === x.n));
+  const REGIONS = [["pushH","pushV","pullH","pullV"], ["squat","hinge","lunge","glute","ham"], ["core","durability"], ["power","interval","steady","circuit"],
+    ["mobLower","mobUpper"], ["flexLower","flexUpper"]];
+  const myKeys = Object.keys(eqPools).filter(k => eqPools[k].includes(ex.n));
+  const region = REGIONS.find(g => g.some(k => myKeys.includes(k)));
+  const nearby = region ? region.flatMap(k => eqPools[k] || []).map(findEx).filter(x => x && x.n !== ex.n && !state.exercises.some(y => y.n === x.n)) : same;
+  const opts = [...peers, ...subs, ...nearby].filter(x => !seen.has(x.n) && seen.add(x.n)).slice(0,6);
   sheet((card, close) => {
     card.append(h("h2", null, "Pick a swap"), h("p", {class:"muted small"}, reason === "Pain or discomfort" ? "If the pain is sharp, stop this movement and get it assessed rather than pushing through." : "These keep today's training purpose."));
     const l = h("div", {class:"sheet-list"});
+    if(!opts.length) card.append(h("p", {class:"small muted"}, "Every similar exercise for your equipment is already in today's session. Ask the coach for another option."));
     opts.forEach(src => l.append(h("button", {"data-block":src.block, onclick:() => {
       const doneOld = ex.sets.filter(s => s.done), left = Math.max(1, ex.sets.length - doneOld.length);
       const repl = {...clone(src), substitutedFor:ex.substitutedFor || ex.n, substitutionReason:reason, skipped:false, rpe:null,
@@ -955,7 +1085,7 @@ function coachContext(){
   return {
     app:`Zahi Fit v${VERSION}`,
     athleteName: me.name && me.name !== "Me" ? me.name : null,
-    profile:{trainingDays:plan.days, primaryGoal:GOALS[plan.primary], secondaryGoals:plan.secondary.map(x => GOALS[x]), preferredDuration:plan.duration},
+    profile:{trainingDays:plan.days, primaryGoal:GOALS[plan.primary], secondaryGoals:plan.secondary.map(x => GOALS[x]), preferredDuration:plan.duration, equipment:plan.equipment === "bodyweight" ? "Bodyweight only (no gym equipment)" : "Full gym"},
     personalProfile: personal ? {sex:personal.sex, ageBracket:personal.ageBracket, programmingGuidance:ageGuidance(personal.ageBracket),
       instruction:"Use sex only where physiologically relevant. Do not stereotype exercise capability. Tailor recovery, progression and movement options to age bracket, readiness, goals and actual performance."} : {sex:null, ageBracket:null},
     readiness: state ? state.readiness : null,
@@ -1041,71 +1171,137 @@ function openCoachOverlay(seed){
   document.body.append(ov);
 }
 
-/* ---------- Technique guide (photos first, SVG fallback) ---------- */
-const PHOTO_ROOT = "pt-assets-v34/", SVG_ROOT = "pt-assets-v33/";
+/* ---------- Technique guide: YouTube demo + visual step-by-step ---------- */
 const familyOf = ex => FAMILY[ex.n] || "circuit";
-function stepImage(family, i, alt){
-  const img = h("img", {src:`${PHOTO_ROOT}${family}-step${i+1}.jpg`, alt, decoding:"async"});
-  img.addEventListener("error", () => { if(!img.dataset.fb){ img.dataset.fb = "1"; img.classList.add("svg"); img.src = `${SVG_ROOT}${family}-step${i+1}.svg`; } }, {once:false});
-  return img;
+const videoPicks = () => read(K.videoPick, {}) || {};
+function videoFor(ex){ const own = videoPicks()[ex.n]; return own || (typeof VIDEOS !== "undefined" ? VIDEOS[ex.n] : null) || null; }
+function ytId(text){
+  const m = String(text || "").trim().match(/(?:youtu\.be\/|v=|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/) || String(text || "").trim().match(/^([\w-]{11})$/);
+  return m ? m[1] : null;
 }
+const ytWatch = id => `https://www.youtube.com/watch?v=${id}`;
+const ytSearch = ex => `https://www.youtube.com/results?search_query=${encodeURIComponent((typeof VIDEO_SEARCH !== "undefined" && VIDEO_SEARCH[ex.n]) || `${ex.n} exercise how to proper form`)}`;
+const ytThumb = id => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+/* A simple picture for each step, chosen from what the step asks you to do. */
+const STEP_ICONS = [
+  [/^(set|setup|start|lie|kneel|choose|arrange|rack|pick up|step on|stand on|take a wide stance|position|place|make an|unlock|forearms down)/i, "📍"],
+  [/track the knee/i, "🦵"],
+  [/breath|exhale/i, "🌬️"],
+  [/feel|tension|bias|load the|touch/i, "🎯"],
+  [/rotat|\bturn|twist/i, "🔄"],
+  [/pull|row\b|elbow|initiate with the back/i, "↩️"],
+  [/hold|pause|squeeze|float|\bown\b|top position/i, "⏸️"],
+  [/repeat|switch|alternate|reset|finish|release|return|exit/i, "🔁"],
+  [/lower|descend|descent|down|dip|hike|hinge|sink|drop|sit between|land|rock/i, "⬇️"],
+  [/drive|press|push|stand up|stand through|lift|rise|explode|jump|snap|raise|curl|arc|\bup\b/i, "⬆️"],
+  [/grip|hands|arm/i, "✊"],
+  [/brace|tighten|tuck|core|stable|stabil|ribs/i, "🛡️"],
+  [/tall|straight|square|neutral|flatten|stack|control|clean|scale/i, "🧍"],
+  [/walk|step|carry|feet|heel|stance/i, "👣"],
+  [/stretch|reach|lengthen|open|extend|shift|lean|pry|move behind|draw/i, "↔️"],
+  [/pace|rhythm|cadence|interval|effort|recover|power|transition/i, "⏱️"]
+];
+const stepIcon = title => (STEP_ICONS.find(([re]) => re.test(title)) || [null, "•"])[1];
+
+function videoCard(ex, onChange){
+  const id = videoFor(ex), box = h("section", {class:"video-card"});
+  if(id){
+    const frame = h("div", {class:"video-frame"});
+    const poster = h("button", {class:"video-poster", "aria-label":`${T("watch")}: ${exName(ex.n)}`, onclick:() => {
+      if(navigator.onLine === false){ toast(T("offlineVideo")); return; }
+      hush();
+      frame.replaceChildren(h("iframe", {src:`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1`,
+        title:`${exName(ex.n)} — video`, allow:"autoplay; encrypted-media; picture-in-picture; fullscreen", allowfullscreen:true, referrerpolicy:"strict-origin-when-cross-origin"}));
+    }}, h("img", {src:ytThumb(id), alt:"", loading:"lazy"}), h("span", {class:"play"}, "▶"), h("span", {class:"watch"}, T("watch")));
+    poster.querySelector("img").addEventListener("error", e => e.target.remove());
+    frame.append(poster);
+    box.append(frame, h("div", {class:"video-links"},
+      h("a", {href:ytWatch(id), target:"_blank", rel:"noopener", class:"linkish"}, "↗ " + T("openYT")),
+      h("button", {class:"linkish", onclick:() => pickVideo(ex, onChange)}, T("changeVideo"))));
+  }else{
+    box.append(h("div", {class:"video-empty"},
+      h("a", {class:"btn primary block", href:ytSearch(ex), target:"_blank", rel:"noopener"}, "▶ " + T("findYT")),
+      h("button", {class:"linkish", onclick:() => pickVideo(ex, onChange)}, "+ " + T("addVideo"))));
+  }
+  return box;
+}
+function pickVideo(ex, onChange){
+  sheet((card, close) => {
+    const input = h("input", {class:"text-input", placeholder:"https://youtu.be/…", "aria-label":"YouTube link", autocomplete:"off", inputmode:"url"});
+    const save = h("button", {class:"btn block section", disabled:true}, "Use this video");
+    const paint = () => { const ok = !!ytId(input.value); save.disabled = !ok; actionState(save, ok); };
+    input.addEventListener("input", paint);
+    save.addEventListener("click", () => {
+      const id = ytId(input.value); if(!id) return;
+      const picks = videoPicks(); picks[ex.n] = id; write(K.videoPick, picks); close(); toast("Video saved."); onChange && onChange();
+    });
+    card.append(h("h2", null, T("changeVideo")),
+      h("p", {class:"small muted"}, `Find a video for ${exName(ex.n)} in YouTube, tap Share › Copy link, then paste it here.`),
+      h("a", {class:"btn block", href:ytSearch(ex), target:"_blank", rel:"noopener"}, "Search YouTube"),
+      input, save,
+      videoPicks()[ex.n] ? h("button", {class:"btn ghost block", onclick:() => { const p = videoPicks(); delete p[ex.n]; write(K.videoPick, p); close(); toast("Back to the recommended video."); onChange && onChange(); }}, "Use the recommended video") : null);
+    paint();
+  });
+}
+
 function openGuide(ex, talk, startAt = 0){
-  const fam = familyOf(ex), how = exHow(ex);
-  const steps = stepsOf(fam).map((st,k) => ({title:st[0], text:st[1], cue:how[k] || null}));
+  const fam = familyOf(ex), how = exHow(ex), enSteps = STEPS[fam] || STEPS.circuit;
+  const steps = stepsOf(fam).map((st,k) => ({title:st[0], text:st[1], cue:how[k] || null, icon:stepIcon((enSteps[k] || st)[0])}));
   let i = Math.min(startAt, steps.length - 1), playingAll = false;
   const inner = h("div", {class:"app"});
   const ov = h("div", {class:"overlay guide", role:"dialog", "aria-modal":"true", "aria-label":exName(ex.n)}, inner);
   const close = () => { hush(); playingAll = false; ov.remove(); };
-  const stage = h("div", {class:"stage"}), dots = h("div", {class:"steps-dots"}), content = h("div");
+  const list = h("ol", {class:"stepper"});
   const playBtn = h("button", {class:"btn primary"}), prev = h("button", {class:"icon-btn", "aria-label":"Previous step"}, "‹"), next = h("button", {class:"icon-btn", "aria-label":"Next step"}, "›");
   const lineFor = k => phrase().step(k+1, steps[k].title, steps[k].text, steps[k].cue);
   const say = (then) => {
     playBtn.textContent = T("preparing");
     speak(lineFor(i), {force:true, patient:true, onend:then, onready:() => { playBtn.textContent = T("stop"); }});
   };
-  const paint = () => {
-    stage.replaceChildren(stepImage(fam, i, `${exName(ex.n)}, ${T("step")} ${i+1}: ${steps[i].title}`), h("span", {class:"stage-step"}, `${i+1} / ${steps.length}`));
-    dots.replaceChildren(...steps.map((st,k) => h("button", {"aria-label":`${T("step")} ${k+1}: ${st.title}`, "aria-current":String(k === i), class:k < i ? "seen" : "", onclick:() => { hush(); playingAll = false; i = k; paint(); }})));
-    content.replaceChildren(...[
-      h("h2", {class:"step-title"}, steps[i].title),
-      h("p", {class:"step-text"}, steps[i].text),
-      steps[i].cue ? h("div", {class:"step-cue"}, steps[i].cue) : null,
-      i === steps.length - 1 ? h("div", null,
-        h("div", {class:"feel"}, h("h4", null, T("feel")), h("p", {class:"small"}, feelOf(fam))),
-        h("div", {class:"avoid"}, h("h4", null, T("avoid")), h("ul", null, exMistakes(ex).map(m => h("li", null, m))))) : null].filter(Boolean));
+  const paint = (scroll) => {
+    list.replaceChildren(...steps.map((st,k) => h("li", {class:"step-row" + (k === i ? " current" : k < i ? " done" : "")},
+      h("button", {class:"step-head", "aria-expanded":String(k === i), onclick:() => { hush(); playingAll = false; i = k; paint(true); }},
+        h("span", {class:"step-icon", "aria-hidden":"true"}, st.icon), h("span", {class:"step-num"}, k+1),
+        h("span", {class:"step-name"}, st.title)),
+      k === i ? h("div", {class:"step-body"}, h("p", null, st.text), st.cue ? h("div", {class:"step-cue"}, st.cue) : null) : null)));
     prev.disabled = i === 0;
     next.textContent = i === steps.length-1 ? "✓" : "›";
     next.setAttribute("aria-label", i === steps.length-1 ? "Close guide" : "Next step");
     if(!playingAll) playBtn.textContent = "▶ " + T("talk");
+    if(scroll) requestAnimationFrame(() => list.querySelector(".current")?.scrollIntoView({block:"nearest", behavior:"smooth"}));
   };
   const playAll = () => {
-    playingAll = true; paint();
-    const run = () => say(() => { if(!playingAll) return; if(i < steps.length-1){ setTimeout(() => { if(!playingAll) return; i++; paint(); run(); }, 900); } else { playingAll = false; paint(); } });
+    playingAll = true; paint(true);
+    const run = () => say(() => { if(!playingAll) return; if(i < steps.length-1){ setTimeout(() => { if(!playingAll) return; i++; paint(true); run(); }, 900); } else { playingAll = false; paint(); } });
     run();
   };
-  playBtn.addEventListener("click", () => { if(playingAll){ playingAll = false; hush(); paint(); } else playAll(); });
-  prev.addEventListener("click", () => { hush(); playingAll = false; if(i > 0){ i--; paint(); } });
-  next.addEventListener("click", () => { hush(); playingAll = false; if(i < steps.length-1){ i++; paint(); } else close(); });
-  let x0 = null;
-  stage.addEventListener("touchstart", e => { x0 = e.touches[0].clientX; }, {passive:true});
-  stage.addEventListener("touchend", e => { if(x0 == null) return; const dx = e.changedTouches[0].clientX - x0; x0 = null; if(Math.abs(dx) > 50){ hush(); playingAll = false; i = Math.max(0, Math.min(steps.length-1, i + (dx < 0 ? 1 : -1))); paint(); } });
+  let card = null;
+  const resetVideo = () => { if(card && card.querySelector("iframe")){ const fresh = videoCard(ex, () => reopen()); card.replaceWith(fresh); card = fresh; } };
+  playBtn.addEventListener("click", () => { if(playingAll){ playingAll = false; hush(); paint(); } else { resetVideo(); playAll(); } });
+  prev.addEventListener("click", () => { hush(); playingAll = false; if(i > 0){ i--; paint(true); } });
+  next.addEventListener("click", () => { hush(); playingAll = false; if(i < steps.length-1){ i++; paint(true); } else close(); });
   const speed = h("select", {"aria-label":T("voiceSpeed")}, [["0.75",T("slower")],["0.9",T("normal")],["1.05",T("faster")]].map(([v,t]) => h("option", {value:v}, t)));
   speed.value = String([0.75,0.9,1.05].reduce((a,b) => Math.abs(b-voice.rate) < Math.abs(a-voice.rate) ? b : a));
   speed.addEventListener("change", () => { voice.rate = Number(speed.value); localStorage.setItem(K.rate, speed.value); });
-  // Language & voice chip: change it here, confirm, and the guide reloads in the new language at the same step.
   const chip = h("button", {class:"lang-chip", "aria-label":"Change language and voice", onclick:() => {
     hush(); playingAll = false;
     openVoiceSheet(() => { close(); if(state && wk) paintExercise(); openGuide(ex, false, i); });
   }}, `${voice.lang.toUpperCase()} · ${genderLabel(voice.gender)}`);
+  const reopen = () => { close(); if(state && wk) paintExercise(); openGuide(ex, false, i); };
   inner.append(
     h("div", {class:"ov-top"}, h("button", {class:"icon-btn plain", "aria-label":"Close guide", onclick:close}, "←"),
       h("div", {class:"t"}, h("b", null, exName(ex.n)), h("span", {class:"tag", "data-block":ex.block}, blockName(ex.block))), chip),
-    stage, dots, content,
+    (card = videoCard(ex, () => reopen())),
+    h("div", {class:"section-head section"}, h("h2", null, T("stepByStep")), h("span", {class:"tiny muted"}, `${steps.length} ${T("step")}${voice.lang === "de" ? "e" : "s"}`)),
+    h("p", {class:"tiny muted"}, T("tapStep")),
+    list,
+    h("div", {class:"guide-extra"},
+      h("div", {class:"feel"}, h("h4", null, T("feel")), h("p", {class:"small"}, feelOf(fam))),
+      h("div", {class:"avoid"}, h("h4", null, T("avoid")), h("ul", null, exMistakes(ex).map(m => h("li", null, m))))),
     h("div", {class:"voice-opts"}, h("span", {class:"small muted"}, T("voiceSpeed")), speed),
     h("div", {class:"guide-bar"}, prev, playBtn, next));
   document.body.append(ov);
   paint();
-  // Prepare all five steps in the background, in order, so narration flows without waiting.
   steps.reduce((p, _, k) => p.then(() => ov.isConnected ? prefetchVoice(lineFor(k), false, true) : null), Promise.resolve());
   if(talk) setTimeout(playAll, 250);
 }
@@ -1285,6 +1481,9 @@ function planEditor(draft, onChange){
   const wrap = h("div");
   const paint = () => {
     wrap.replaceChildren(
+      h("div", {class:"field-label"}, "Where do you train?"),
+      h("div", {class:"pick equip", role:"group"}, [["gym","Gym","Machines, barbells, dumbbells"],["bodyweight","Bodyweight","No equipment · a chair, table and step help"]].map(([v,t,sub]) =>
+        h("button", {"aria-pressed":String((draft.equipment || "gym") === v), onclick:() => { draft.equipment = v; paint(); onChange && onChange(); }}, h("b", null, t), h("small", null, sub)))),
       h("div", {class:"field-label"}, "Training days per week"),
       h("div", {class:"pick num", role:"group"}, [2,3,4,5,6].map(d => h("button", {"aria-pressed":String(draft.days === d), onclick:() => { draft.days = d; paint(); onChange && onChange(); }}, d))),
       h("div", {class:"field-label"}, "Main goal"),
@@ -1320,15 +1519,26 @@ function download(name, data){
 function renderProfile(m){
   m.append(topline("Profile"));
   m.append(peoplePanel(), h("h2", {class:"section profile-for"}, `${me.name}'s settings`));
-  // Plan
+  // Plan (live preview updates as you choose; Save applies it)
   const pd = clone(plan);
+  const preview = h("div", {class:"plan-preview"});
   const save = h("button", {class:"btn block section", onclick:async () => {
     if(JSON.stringify(pd) === JSON.stringify(plan)) return;
     if(state && !(await ask("Update your plan?", "Your current workout keeps going. The new plan starts from session A next time.", "Update plan"))) return;
-    applyPlan(pd); paintPlanSave(); toast("Plan saved.");
+    applyPlan(pd); paintPlanSave(); toast("Plan saved. Today now shows your new programme.");
   }});
-  const paintPlanSave = () => { const changed = JSON.stringify(pd) === JSON.stringify(plan) ? false : true; actionState(save, changed, "Save plan", "Plan saved"); save.disabled = !changed; };
-  m.append(h("section", {class:"panel"}, h("h2", null, "Your plan"), planEditor(pd, paintPlanSave), save));
+  const paintPreview = () => {
+    const week = buildWeek(pd), changed = JSON.stringify(pd) !== JSON.stringify(plan);
+    preview.replaceChildren(
+      h("div", {class:"preview-head"}, h("b", null, changed ? "Preview of your new programme" : "Your current programme"),
+        h("span", null, `${pd.days} sessions · ${pd.duration} min · ${EQUIPMENT[pd.equipment || "gym"]}`)),
+      ...week.map((w,k) => { const n = splitName(w.name);
+        return h("details", {class:"preview-session", "data-tone":k % 4},
+          h("summary", null, h("span", {class:"l"}, n.letter), h("div", null, h("b", null, n.title), h("span", null, `${w.exercises.length} exercises`))),
+          h("ol", null, w.exercises.map(e => h("li", {"data-block":e.block}, h("i", {class:"sw"}), exName(e.n), h("em", null, `${e.sets} × ${repsText(e.reps)}`))))); }));
+  };
+  const paintPlanSave = () => { const changed = JSON.stringify(pd) !== JSON.stringify(plan); actionState(save, changed, "Save plan", "Plan saved"); save.disabled = !changed; paintPreview(); };
+  m.append(h("section", {class:"panel"}, h("h2", null, "Your plan"), planEditor(pd, paintPlanSave), preview, save));
   paintPlanSave();
 
   // About you
@@ -1441,9 +1651,9 @@ function onboarding(){
     }else if(step === 1){
       inner.append(h("h1", null, "What are you training for?"), h("p", {class:"muted"}, "Your weekly sessions are built from this."), planEditor(draftPlan));
     }else{
-      plan = draftPlan; workouts = buildWeek(); // preview only
+      const previewWeek = buildWeek(draftPlan);
       inner.append(h("h1", null, `Your ${draftPlan.days}-day plan`), h("p", {class:"muted"}, `${GOALS[draftPlan.primary]} focus · ${draftPlan.duration} min sessions`),
-        h("div", {class:"tiles section"}, workouts.map((w,k) => { const n = splitName(w.name); return h("div", {class:"tile", "data-tone":k % 4}, h("span", {class:"l"}, n.letter), h("b", null, n.title), h("span", null, `${w.exercises.length} exercises`)); })));
+        h("div", {class:"tiles section"}, previewWeek.map((w,k) => { const n = splitName(w.name); return h("div", {class:"tile", "data-tone":k % 4}, h("span", {class:"l"}, n.letter), h("b", null, n.title), h("span", null, `${w.exercises.length} exercises`)); })));
     }
     inner.append(h("div", {class:"foot btn-row"},
       step === 0 ? h("button", {class:"btn", onclick:done}, "Skip for now") : h("button", {class:"btn", onclick:() => { step--; paint(); }}, "Back"),

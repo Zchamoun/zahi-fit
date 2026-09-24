@@ -133,5 +133,5 @@ const DE = {
 
   reps:r => String(r).replace(/\/side/g, "/Seite").replace(/\/leg/g, "/Bein").replace(/\bsec\b/g, "Sek.")
     .replace(/\bhard\b/g, "hart").replace(/\beasy\b/g, "locker").replace(/cal bike/g, "kcal Rad").replace(/box step-ups/g, "Box-Step-ups")
-    .replace(/DB push press/g, "KH-Push-Press").replace(/KB deadlifts/g, "KB-Kreuzheben")
+    .replace(/DB push press/g, "KH-Push-Press").replace(/KB deadlifts/g, "KB-Kreuzheben").replace(/\(3 s down\)/g, "(3 s absenken)").replace(/squats/g, "Kniebeugen").replace(/push-ups/g, "Liegestütze").replace(/reverse lunges/g, "Ausfallschritte rückwärts").replace(/s plank/g, "s Unterarmstütz").replace(/s work/g, "s Arbeit").replace(/s fast/g, "s schnell").replace(/s march/g, "s gehen")
 };
