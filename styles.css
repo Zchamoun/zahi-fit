@@ -357,3 +357,8 @@ details.tech[open] summary::after{content:"–"}
 .howto{margin:6px 0 0;padding-left:20px;font-size:14.5px}
 .howto li+li{margin-top:6px}
 .sheet h3{font-size:16px}
+
+/* v4.3: one rule for action buttons — teal when there's something to save/test, grey when done */
+.btn.idle{background:var(--soft);color:var(--muted)}
+.btn.primary:disabled,.btn.idle:disabled{background:var(--soft);color:var(--faint);opacity:1}
+.apply-row .btn:disabled{background:var(--card)}

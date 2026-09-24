@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.2.0";
+const VERSION = "4.3.0";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -12,7 +12,8 @@ const K = {
   voiceMode:"zahiFitVoiceModeV27", audio:"zahiFitAudioEnabledV27",
   rate:"zahiFitVoiceRateV312", voiceName:"zahiFitVoiceNameV313",
   chat:"zahiFitPTConversationV26", onboarded:"zahiFitOnboardedV4",
-  lang:"zahiFitVoiceLangV41", gender:"zahiFitVoiceGenderV41", engine:"zahiFitVoiceEngineV41"
+  lang:"zahiFitVoiceLangV41", gender:"zahiFitVoiceGenderV41", engine:"zahiFitVoiceEngineV41",
+  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43"
 };
 
 /* ---------- tiny helpers ---------- */
@@ -1095,7 +1096,7 @@ function voiceEditor(onApplied){
         h("span", {class:"small " + (changed ? "" : "muted")}, changed
           ? `New: ${langLabel(draft.lang)} · ${genderLabel(draft.gender)} · ${draft.engine === "natural" ? "Natural" : "Phone voice"}`
           : `Current: ${langLabel(voice.lang)} · ${genderLabel(voice.gender)} · ${voice.engine === "natural" ? "Natural" : "Phone voice"}`),
-        h("button", {class:"btn primary", disabled:!changed, onclick:() => {
+        h("button", {class:"btn " + (changed ? "primary" : "idle"), disabled:!changed, onclick:() => {
           voice.lang = draft.lang; voice.gender = draft.gender; voice.engine = draft.engine; voice.name = "";
           localStorage.setItem(K.lang, voice.lang); localStorage.setItem(K.gender, voice.gender); localStorage.setItem(K.engine, voice.engine); localStorage.setItem(K.voiceName, "");
           toast(`Applied: ${langLabel(voice.lang)} · ${genderLabel(voice.gender)}`);
@@ -1103,7 +1104,7 @@ function voiceEditor(onApplied){
           prefetchWorkoutVoice();
           onApplied && onApplied();
           paint();
-        }}, "Confirm")));
+        }}, changed ? "Confirm" : "Confirmed")));
   };
   paint();
   return box;
@@ -1153,25 +1154,35 @@ function planGuideLines(){
   [p.ten, p.done, p.good, p.test, ...[20,30,45,60,75,90,120,150].map(p.rest)].forEach(x => lines.push(x));
   return lines;
 }
-async function saveOffline(btn, status){
+const offlineSig = () => [voice.lang, voice.gender, planGuideLines().length, plan.days, plan.primary].join("|");
+async function saveOffline(btn, status, repaint){
   if(offlineJob){ offlineJob.cancel = true; return; }
   if(voice.engine !== "natural"){ toast("Choose Natural first. Phone voice already works offline."); return; }
   if(navigator.onLine === false){ toast("You're offline. Connect to Wi-Fi and try again."); return; }
   const lines = planGuideLines(), job = offlineJob = {cancel:false};
-  btn.textContent = "Stop";
+  btn.textContent = "Stop"; btn.classList.add("primary"); btn.classList.remove("idle");
   let done = 0, failed = 0;
   for(const line of lines){
     if(job.cancel) break;
     try{ await naturalClip(line, false, true); }catch{ failed++; if(failed >= 3) break; }
     done++; status.textContent = `Saving ${done} of ${lines.length}…`;
   }
-  offlineJob = null; btn.textContent = "Save guides for offline";
+  offlineJob = null;
+  if(!job.cancel && failed < 3) localStorage.setItem(K.offline, offlineSig());
+  if(repaint) repaint(); else btn.textContent = "Save guides for offline";
   status.textContent = job.cancel ? `Stopped at ${done} of ${lines.length}. Tap again to continue — saved clips are kept.`
     : failed >= 3 ? "Couldn't reach the voice service. Check your connection and try again; saved clips are kept."
     : `Done. ${lines.length} clips saved for ${langLabel(voice.lang)} · ${genderLabel(voice.gender)}.`;
 }
 
 /* ---------- Profile & settings ---------- */
+/* Button rule: teal = something to save or test; grey = saved / up to date. */
+function actionState(btn, needed, readyLabel, doneLabel){
+  btn.classList.toggle("primary", needed);
+  btn.classList.toggle("idle", !needed);
+  if(readyLabel) btn.textContent = needed ? readyLabel : (doneLabel || readyLabel);
+}
+const voiceSig = () => [voice.lang, voice.gender, voice.engine, voice.name, voice.rate].join("|");
 function planEditor(draft, onChange){
   const wrap = h("div");
   const paint = () => {
@@ -1194,14 +1205,14 @@ function applyPlan(p){
   plan = {...p, secondary:[...p.secondary]}; write(K.plan, plan);
   workouts = buildWeek(); nextIndex = 0; localStorage.setItem(K.next, "0");
 }
-function aboutEditor(draft){
+function aboutEditor(draft, onChange){
   const wrap = h("div");
-  const paint = () => wrap.replaceChildren(
+  const paint = () => { onChange && onChange(); wrap.replaceChildren(
     h("div", {class:"field-label"}, "Sex"),
     h("div", {class:"pick", role:"group"}, [["male","Male"],["female","Female"]].map(([v,t]) => h("button", {"aria-pressed":String(draft.sex === v), onclick:() => { draft.sex = v; paint(); }}, t))),
     h("div", {class:"field-label"}, "Age"),
     h("div", {class:"pick", role:"group"}, ["18-29","30-39","40-49","50-59","60+"].map(v => h("button", {"aria-pressed":String(draft.ageBracket === v), onclick:() => { draft.ageBracket = v; paint(); }}, v.replace("-", "–")))),
-    h("p", {class:"tiny muted"}, "Used by your coach for recovery and progression. Sex is only used where it's physiologically relevant."));
+    h("p", {class:"tiny muted"}, "Used by your coach for recovery and progression. Sex is only used where it's physiologically relevant.")); };
   paint(); return wrap;
 }
 function download(name, data){
@@ -1212,16 +1223,29 @@ function renderProfile(m){
   m.append(topline("Profile"));
   // Plan
   const pd = clone(plan);
-  const save = h("button", {class:"btn primary block section hidden", onclick:async () => {
+  const save = h("button", {class:"btn block section", onclick:async () => {
+    if(JSON.stringify(pd) === JSON.stringify(plan)) return;
     if(state && !(await ask("Update your plan?", "Your current workout keeps going. The new plan starts from session A next time.", "Update plan"))) return;
-    applyPlan(pd); save.classList.add("hidden"); toast("Plan updated.");
-  }}, "Save plan");
-  m.append(h("section", {class:"panel"}, h("h2", null, "Your plan"), planEditor(pd, () => save.classList.toggle("hidden", JSON.stringify(pd) === JSON.stringify(plan))), save));
+    applyPlan(pd); paintPlanSave(); toast("Plan saved.");
+  }});
+  const paintPlanSave = () => { const changed = JSON.stringify(pd) === JSON.stringify(plan) ? false : true; actionState(save, changed, "Save plan", "Plan saved"); save.disabled = !changed; };
+  m.append(h("section", {class:"panel"}, h("h2", null, "Your plan"), planEditor(pd, paintPlanSave), save));
+  paintPlanSave();
 
   // About you
   const ad = personal ? {...personal} : {sex:null, ageBracket:null};
-  m.append(h("section", {class:"panel section"}, h("h2", null, "About you"), aboutEditor(ad),
-    h("button", {class:"btn block section", onclick:() => { if(!ad.sex || !ad.ageBracket){ toast("Choose both to save."); return; } personal = {...ad}; write(K.personal, personal); toast("Saved."); }}, "Save")));
+  const aboutSave = h("button", {class:"btn block section", onclick:() => {
+    if(!ad.sex || !ad.ageBracket) return;
+    personal = {...ad}; write(K.personal, personal); paintAboutSave(); toast("Saved.");
+  }});
+  const paintAboutSave = () => {
+    const complete = !!(ad.sex && ad.ageBracket);
+    const changed = complete && (!personal || personal.sex !== ad.sex || personal.ageBracket !== ad.ageBracket);
+    actionState(aboutSave, changed, "Save", complete ? "Saved" : "Choose sex and age");
+    aboutSave.disabled = !changed;
+  };
+  m.append(h("section", {class:"panel section"}, h("h2", null, "About you"), aboutEditor(ad, () => paintAboutSave()), aboutSave));
+  paintAboutSave();
 
   // Language & voice (choose, then Confirm)
   const vpanel = h("section", {class:"panel section"});
@@ -1238,12 +1262,24 @@ function renderProfile(m){
       const vsel = h("select", {"aria-label":"Phone voice"});
       const fill = () => { const vs = voices(); vsel.replaceChildren(h("option", {value:""}, "Best match"), ...vs.slice(0,12).map(v => h("option", {value:v.name}, v.name))); vsel.value = vs.some(v => v.name === voice.name) ? voice.name : ""; };
       fill(); if("speechSynthesis" in window) speechSynthesis.onvoiceschanged = fill;
-      vsel.addEventListener("change", () => { voice.name = vsel.value; localStorage.setItem(K.voiceName, voice.name); });
+      vsel.addEventListener("change", () => { voice.name = vsel.value; localStorage.setItem(K.voiceName, voice.name); paintTest(); });
       phoneVoice = h("div", {class:"setting"}, h("span", null, "Phone voice"), vsel);
     }
+    const testBtn = h("button", {class:"btn block section"});
+    const paintTest = () => actionState(testBtn, localStorage.getItem(K.tested) !== voiceSig(), "Test voice", "Test voice again");
+    testBtn.addEventListener("click", () => {
+      unlockAudio(); cue.start(); testBtn.textContent = "Preparing…";
+      const finish = () => { localStorage.setItem(K.tested, voiceSig()); paintTest(); };
+      speak(phrase().test, {force:true, patient:true, onready:() => { testBtn.textContent = "Playing…"; }, onend:finish});
+      setTimeout(() => { if(/Preparing|Playing/.test(testBtn.textContent)) finish(); }, 15000);
+    });
+    paintTest();
+    rate.addEventListener("change", paintTest);
     const offBtn = h("button", {class:"btn block"}, "Save guides for offline"), offStatus = h("p", {class:"tiny muted"},
       "Downloads the spoken guide for every exercise in your plan, in the confirmed language and voice. Use Wi-Fi; it takes a few minutes.");
-    offBtn.addEventListener("click", () => saveOffline(offBtn, offStatus));
+    const paintOff = () => { if(!offlineJob) actionState(offBtn, localStorage.getItem(K.offline) !== offlineSig(), "Save guides for offline", "Guides saved for offline ✓"); };
+    offBtn.addEventListener("click", () => saveOffline(offBtn, offStatus, paintOff));
+    paintOff();
     vpanel.replaceChildren(h("h2", null, "Language & voice"),
       voiceEditor(paintVoicePanel),
       h("div", {class:"section"}),
@@ -1251,11 +1287,7 @@ function renderProfile(m){
       h("div", {class:"setting"}, h("span", null, "Rest timer sounds"), snd),
       h("div", {class:"setting"}, h("span", null, "Speed"), rate),
       phoneVoice,
-      h("button", {class:"btn block section", onclick:e => {
-        const b = e.currentTarget; unlockAudio(); cue.start(); b.textContent = "Preparing…";
-        speak(phrase().test, {force:true, patient:true, onready:() => { b.textContent = "Playing…"; }, onend:() => { b.textContent = "Test voice"; }});
-        setTimeout(() => { if(b.textContent !== "Test voice") b.textContent = "Test voice"; }, 15000);
-      }}, "Test voice"),
+      testBtn,
       voice.engine === "natural" ? h("div", {class:"section"}, offBtn, offStatus) : null,
       h("button", {class:"btn ghost block", onclick:phoneSetupGuide}, "How to set up your phone's voices"));
   };
