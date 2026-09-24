@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.4.0";
+const VERSION = "4.5.0";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -45,6 +45,37 @@ function splitName(name){
   return m ? {letter:m[1], title:m[2]} : {letter:"•", title:String(name||"Workout")};
 }
 const HEIGHT = {Strength:5, Power:4, Hypertrophy:4, Conditioning:3, Durability:3, Mobility:2, Flexibility:1};
+
+/* ---------- people on this phone ----------
+   Each person has their own history, plan, profile, voice settings, coach chat and in-progress workout.
+   The first person keeps the original storage keys, so existing data needs no migration. */
+const USERS_KEY = "zahiFitUsersV45";
+const DEVICE_KEYS = ["installHide"];                 // shared by everyone on this phone
+const BASE_K = {...K};
+const nsKey = (id, base) => id === "main" ? base : `zf.${id}.${base}`;
+function loadUsers(){
+  let r = read(USERS_KEY, null);
+  if(!r || !Array.isArray(r.users) || !r.users.length){ r = {active:"main", users:[{id:"main", name:"Me", tone:0, created:Date.now()}]}; write(USERS_KEY, r); }
+  if(!r.users.some(u => u.id === r.active)) r.active = r.users[0].id;
+  return r;
+}
+const people = loadUsers();
+const me = people.users.find(u => u.id === people.active);
+for(const k of Object.keys(K)) if(!DEVICE_KEYS.includes(k)) K[k] = nsKey(me.id, BASE_K[k]);
+const initialOf = u => (u.name || "?").trim().charAt(0).toUpperCase() || "?";
+function userStats(u){
+  try{
+    const hs = JSON.parse(localStorage.getItem(nsKey(u.id, BASE_K.history)) || "[]");
+    const last = hs[0] ? new Date(hs[0].date).toLocaleDateString(undefined, {day:"numeric", month:"short"}) : null;
+    return `${hs.length} session${hs.length === 1 ? "" : "s"}${last ? ` · last ${last}` : ""}`;
+  }catch{ return "0 sessions"; }
+}
+function switchUser(id){
+  if(id === people.active) return;
+  try{ hush(); }catch{}
+  people.active = id; write(USERS_KEY, people);
+  location.reload();
+}
 
 /* ---------- toast + dialog (replace alert/confirm) ---------- */
 let toastTimer;
@@ -543,8 +574,8 @@ function ring(done, target){
 function greeting(){ const hr = new Date().getHours(); return hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening"; }
 function renderToday(m){
   const w = workouts[nextIndex], nm = splitName(w.name), week = lastDays(7), hs = getHistory();
-  m.append(h("div", {class:"topline"}, h("div", null, h("div", {class:"hello"}, greeting()), h("div", {class:"wordmark"}, "Zahi Fit")),
-    h("button", {class:"avatar", "aria-label":"Profile", onclick:() => go("profile")}, personal ? (personal.sex === "female" ? "♀" : "♂") : "•")));
+  m.append(h("div", {class:"topline"}, h("div", null, h("div", {class:"hello"}, me.name && me.name !== "Me" ? `${greeting()}, ${me.name}` : greeting()), h("div", {class:"wordmark"}, "Zahi Fit")),
+    h("button", {class:"avatar", "data-tone":me.tone % 4, "aria-label":`${me.name} — switch person`, onclick:whoIsTraining}, initialOf(me))));
   if(!state) m.append(installCard("today"));
   if(state){
     const ex = curEx();
@@ -923,6 +954,7 @@ function coachContext(){
   const ex = curEx();
   return {
     app:`Zahi Fit v${VERSION}`,
+    athleteName: me.name && me.name !== "Me" ? me.name : null,
     profile:{trainingDays:plan.days, primaryGoal:GOALS[plan.primary], secondaryGoals:plan.secondary.map(x => GOALS[x]), preferredDuration:plan.duration},
     personalProfile: personal ? {sex:personal.sex, ageBracket:personal.ageBracket, programmingGuidance:ageGuidance(personal.ageBracket),
       instruction:"Use sex only where physiologically relevant. Do not stereotype exercise capability. Tailor recovery, progression and movement options to age bracket, readiness, goals and actual performance."} : {sex:null, ageBracket:null},
@@ -1176,6 +1208,71 @@ async function saveOffline(btn, status, repaint){
     : `Done. ${lines.length} clips saved for ${langLabel(voice.lang)} · ${genderLabel(voice.gender)}.`;
 }
 
+/* ---------- switching people ---------- */
+function personRow(u, {onclick, trailing} = {}){
+  return h("button", {class:"person-row", onclick},
+    h("span", {class:"avatar", "data-tone":u.tone % 4, "aria-hidden":"true"}, initialOf(u)),
+    h("div", null, h("b", null, u.name), h("span", null, userStats(u))),
+    trailing || null);
+}
+function whoIsTraining(){
+  sheet((card, close) => {
+    card.append(h("h2", null, "Who's training?"), h("p", {class:"small muted"}, "Each person has their own workouts, plan and settings on this phone."));
+    const list = h("div", {class:"sheet-list people"});
+    people.users.forEach(u => list.append(personRow(u, {
+      onclick:() => { if(u.id === me.id){ close(); return; } close(); switchUser(u.id); },
+      trailing:u.id === me.id ? h("span", {class:"state cur"}, "Training now") : h("span", {class:"state"}, "Switch")})));
+    card.append(list,
+      h("button", {class:"btn primary block section", onclick:() => { close(); addPerson(); }}, "+ Add a person"),
+      h("button", {class:"btn ghost block", onclick:() => { close(); go("profile"); }}, "Manage people"));
+  });
+}
+function nameSheet(title, initial, confirmLabel, onSave){
+  sheet((card, close) => {
+    const input = h("input", {class:"text-input", value:initial || "", maxlength:"24", placeholder:"Name", "aria-label":"Name", autocomplete:"off"});
+    const btn = h("button", {class:"btn block section", disabled:true}, confirmLabel);
+    const paint = () => { const v = input.value.trim(); const ok = !!v && v !== (initial || ""); btn.disabled = !ok; actionState(btn, ok); };
+    input.addEventListener("input", paint);
+    input.addEventListener("keydown", e => { if(e.key === "Enter" && !btn.disabled) btn.click(); });
+    btn.addEventListener("click", () => { const v = input.value.trim(); if(!v) return; close(); onSave(v); });
+    card.append(h("h2", null, title), input, btn);
+    paint(); setTimeout(() => input.focus(), 150);
+  });
+}
+function addPerson(){
+  if(people.users.length >= 8){ toast("Up to 8 people per phone."); return; }
+  nameSheet("Add a person", "", "Add and switch", name => {
+    const id = "u" + Date.now().toString(36);
+    const used = people.users.map(u => u.tone % 4);
+    const tone = [0,1,2,3].find(t => !used.includes(t)) ?? people.users.length % 4;
+    people.users.push({id, name, tone, created:Date.now()});
+    write(USERS_KEY, people);
+    switchUser(id);                     // new person starts with the short setup
+  });
+}
+function renamePerson(u){
+  nameSheet("Rename", u.name, "Save name", name => { u.name = name; write(USERS_KEY, people); go("profile"); toast("Name saved."); });
+}
+async function deletePerson(u){
+  if(u.id === me.id) return;
+  if(!(await ask(`Delete ${u.name}?`, `All of ${u.name}'s workouts, plan and settings on this phone will be erased. Other people aren't affected.`, "Delete", true))) return;
+  Object.keys(BASE_K).filter(k => !DEVICE_KEYS.includes(k)).forEach(k => localStorage.removeItem(nsKey(u.id, BASE_K[k])));
+  people.users = people.users.filter(x => x.id !== u.id);
+  write(USERS_KEY, people); go("profile"); toast(`${u.name} removed.`);
+}
+function peoplePanel(){
+  const list = h("div", {class:"sheet-list people"});
+  people.users.forEach(u => {
+    const isMe = u.id === me.id;
+    list.append(h("div", {class:"person-line"},
+      personRow(u, {onclick:() => isMe ? renamePerson(u) : switchUser(u.id), trailing:h("span", {class:"state" + (isMe ? " cur" : "")}, isMe ? "You · rename" : "Switch")}),
+      isMe ? null : h("button", {class:"icon-btn plain del", "aria-label":`Delete ${u.name}`, onclick:() => deletePerson(u)}, "🗑")));
+  });
+  return h("section", {class:"panel"}, h("h2", null, "People on this phone"),
+    h("p", {class:"tiny muted"}, "Everyone's workouts, plan, voice and coach chat are kept apart. Switching isn't password-protected — it keeps data tidy, not private."),
+    list, h("button", {class:"btn primary block section", onclick:addPerson}, "+ Add a person"));
+}
+
 /* ---------- Profile & settings ---------- */
 /* Button rule: teal = something to save or test; grey = saved / up to date. */
 function actionState(btn, needed, readyLabel, doneLabel){
@@ -1222,6 +1319,7 @@ function download(name, data){
 }
 function renderProfile(m){
   m.append(topline("Profile"));
+  m.append(peoplePanel(), h("h2", {class:"section profile-for"}, `${me.name}'s settings`));
   // Plan
   const pd = clone(plan);
   const save = h("button", {class:"btn block section", onclick:async () => {
@@ -1310,16 +1408,16 @@ function renderProfile(m){
       setHistory([...cur, ...add].sort((a,b) => new Date(b.date) - new Date(a.date))); toast(`Imported ${add.length} sessions.`);
     }catch{ toast("That file isn't a valid Zahi Fit backup."); }
   });
-  m.append(h("section", {class:"panel section"}, h("h2", null, "Your data"),
-    h("p", {class:"small muted"}, "Everything is stored on this phone. Back it up before clearing browser data or switching phones."),
+  m.append(h("section", {class:"panel section"}, h("h2", null, `${me.name}'s data`),
+    h("p", {class:"small muted"}, `${me.name}'s data is stored on this phone. Back it up before clearing browser data or switching phones.`),
     h("div", {class:"btn-row"},
-      h("button", {class:"btn sm", onclick:() => download(`zahi-fit-history-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(getHistory(), null, 2))}, "Back up history"),
+      h("button", {class:"btn sm", onclick:() => download(`zahi-fit-${me.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-history-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(getHistory(), null, 2))}, "Back up history"),
       h("button", {class:"btn sm", onclick:() => file.click()}, "Restore backup")), file,
     h("button", {class:"btn sm block section", onclick:() => download("zahi-fit-coach-context.json", JSON.stringify(coachContext(), null, 2))}, "Export coach file"),
     h("button", {class:"btn danger sm block section", onclick:async () => {
-      if(!(await ask("Erase all data?", "History, plan, profile and any workout in progress will be deleted from this phone. Back up first if you might need it.", "Erase everything", true))) return;
-      Object.values(K).forEach(k => localStorage.removeItem(k)); location.reload();
-    }}, "Erase all data")));
+      if(!(await ask(`Erase ${me.name}'s data?`, `${me.name}'s history, plan, profile and any workout in progress will be deleted from this phone. Other people aren't affected. Back up first if you might need it.`, "Erase", true))) return;
+      Object.keys(K).filter(k => !DEVICE_KEYS.includes(k)).forEach(k => localStorage.removeItem(K[k])); location.reload();
+    }}, `Erase ${me.name}'s data`)));
 
   m.append(isStandalone()
     ? h("section", {class:"panel section"}, h("h2", null, "App"), h("div", {class:"spread"}, h("span", null, "Installed on this phone"), h("button", {class:"btn idle sm", disabled:true}, "Installed ✓")))
@@ -1339,7 +1437,7 @@ function onboarding(){
   const paint = () => {
     inner.replaceChildren(h("div", {class:"progress"}, [0,1,2].map(k => h("i", {class:k <= step ? "on" : ""}))));
     if(step === 0){
-      inner.append(h("h1", null, "Let's set up your training"), h("p", {class:"muted"}, "Two quick screens. You can change any of this later in Profile."), aboutEditor(draftAbout));
+      inner.append(h("h1", null, me.name && me.name !== "Me" ? `Hi ${me.name}, let's set up your training` : "Let's set up your training"), h("p", {class:"muted"}, "Two quick screens. You can change any of this later in Profile."), aboutEditor(draftAbout));
     }else if(step === 1){
       inner.append(h("h1", null, "What are you training for?"), h("p", {class:"muted"}, "Your weekly sessions are built from this."), planEditor(draftPlan));
     }else{
