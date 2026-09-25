@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.9.2";
+const VERSION = "4.9.3";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -540,7 +540,7 @@ function todayTarget(ex){
 
 /* ---------- sound + voice ----------
    Two engines:
-   - "natural": neural voices (English or German; male, female or neutral) from the zahi-fit-voice
+   - "natural" (disabled since v4.9.3 to avoid OpenAI credit): neural voices from the zahi-fit-voice
      Cloudflare Worker. Every clip is cached on the phone, so it plays instantly next time and offline.
    - "device": the phone's own voice, used offline or when the natural voice can't be reached. */
 const voice = {
@@ -550,7 +550,7 @@ const voice = {
   name: localStorage.getItem(K.voiceName) || "",
   lang: localStorage.getItem(K.lang) === "de" ? "de" : "en",
   gender: ["male","female","neutral"].includes(localStorage.getItem(K.gender)) ? localStorage.getItem(K.gender) : "male",
-  engine: localStorage.getItem(K.engine) === "device" ? "device" : "natural"
+  engine: "device"          // phone voices only: free, offline, no OpenAI credit
 };
 let actx = null;
 function unlockAudio(){ try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if(actx.state === "suspended") actx.resume(); }catch{} }
@@ -642,28 +642,70 @@ function voices(lang = voice.lang){
   const score = v => (/Natural|Neural|Enhanced|Premium|Online/i.test(v.name) ? 0 : 2) + (v.localService === false ? 0 : 1);
   return (inLang.length ? inLang : all).slice().sort((a,b) => score(a) - score(b) || (a.name||"").localeCompare(b.name||""));
 }
-function deviceVoice(lang = voice.lang){
-  const vs = voices(lang);
-  const chosen = lang === voice.lang && vs.find(v => v.name === voice.name);
-  if(chosen) return chosen;
-  const want = voice.gender === "female" ? FEMALE : voice.gender === "male" ? MALE : null;
-  return (want && vs.find(v => want.test(v.name) && !(want === MALE ? FEMALE : MALE).test(v.name))) || vs[0];
+/* Google's Android voices carry codes like "en-us-x-iol-local"; these codes tell male from female. */
+const GOOGLE_F = /-x-(sfg|iob|iog|tpc|tpf|gba|gbc|gbg|gbs|afh|aua|auc|ahp|cxx|ene|dea|deb|nfh|kda)(-|$)/i;
+const GOOGLE_M = /-x-(iol|iom|tpd|gbb|gbd|rjs|aub|aud|end|deg|deh|dej)(-|$)/i;
+function genderOf(v){
+  const n = `${v.name || ""} ${v.voiceURI || ""}`;
+  if(GOOGLE_F.test(n) || FEMALE.test(n)) return "female";
+  if(GOOGLE_M.test(n) || MALE.test(n)) return "male";
+  return null;
 }
-function speakDevice(text, token, onend, lang = voice.lang){
+const hasLang = lang => ("speechSynthesis" in window) && (speechSynthesis.getVoices() || []).some(v => new RegExp(`^${LANG_TAG[lang]}([-_]|$)`, "i").test(v.lang || ""));
+function pickVoice(set){
+  if(!hasLang(set.lang)) return {v:null, exact:false, mid:false};          // let the phone use its own voice for that language
+  const vs = voices(set.lang);
+  if(set.name){ const own = vs.find(v => v.name === set.name); if(own) return {v:own, exact:true}; }
+  if(set.gender === "neutral"){
+    const plain = vs.find(v => !genderOf(v));
+    if(plain) return {v:plain, exact:false};
+    const soft = vs.find(v => genderOf(v) === "female");                    // mid-pitched: a female voice pitched down a little
+    return {v:soft || vs[0], exact:false, mid:!!soft};
+  }
+  const hit = vs.find(v => genderOf(v) === set.gender);
+  return {v:hit || vs[0], exact:!!hit};
+}
+/* Tone: a clear pitch difference so male, female and neutral always sound different —
+   stronger when the phone has only one voice for the language, milder on a truly gendered voice. */
+function toneFor(gender, exact, mid){
+  if(gender === "male") return exact ? {pitch:0.9, rate:0.97} : {pitch:0.68, rate:0.95};
+  if(gender === "female") return exact ? {pitch:1.1, rate:1.0} : {pitch:1.32, rate:1.02};
+  return mid ? {pitch:0.86, rate:1.0} : {pitch:1.0, rate:1.0};
+}
+let voicesWaiter = null;
+function voicesReady(){
+  if(!("speechSynthesis" in window) || (speechSynthesis.getVoices() || []).length) return Promise.resolve();
+  if(!voicesWaiter) voicesWaiter = new Promise(res => {
+    const done = () => { speechSynthesis.removeEventListener?.("voiceschanged", done); res(); };
+    speechSynthesis.addEventListener?.("voiceschanged", done); setTimeout(done, 1500);
+  });
+  return voicesWaiter;
+}
+let noLangNoticed = {};
+async function speakDevice(text, token, onend, set = voice){
   if(!("speechSynthesis" in window)){ onend && onend(); return; }
-  const v = deviceVoice(lang);
+  await voicesReady();
+  if(token !== speechToken) return;
+  if(set.lang === "de" && !hasLang("de") && !noLangNoticed.de){ noLangNoticed.de = true; toast("No German voice is installed on this phone. See Profile › How to set up your phone's voices."); }
+  const {v, exact, mid} = pickVoice(set), tone = toneFor(set.gender, exact, mid);
   // Short sentences sound smoother and avoid Android cutting long utterances off.
   const parts = String(text).match(/[^.!?;:]+[.!?;:]*/g)?.map(x => x.trim()).filter(Boolean) || [String(text)];
   speechSynthesis.cancel();
   parts.forEach((p, k) => {
     const u = new SpeechSynthesisUtterance(p);
-    if(v){ u.voice = v; u.lang = v.lang; } else u.lang = lang === "de" ? "de-DE" : "en-GB";
-    u.rate = voice.rate; u.volume = 1;
-    u.pitch = voice.gender === "female" ? 1.06 : voice.gender === "male" ? .9 : 1;
+    if(v){ u.voice = v; u.lang = v.lang; } else u.lang = set.lang === "de" ? "de-DE" : "en-GB";
+    u.rate = (set.rate || voice.rate) * tone.rate; u.pitch = tone.pitch; u.volume = 1;
     if(k === parts.length - 1) u.onend = () => { if(token === speechToken && onend) onend(); };
     speechSynthesis.speak(u);
   });
 }
+/* Play something in a voice that isn't saved yet (previews while choosing). */
+function speakWith(text, set, {onend, onready} = {}){
+  hush(); const token = ++speechToken; onready && onready();
+  speakDevice(text, token, onend, {lang:set.lang, gender:set.gender, name:set.name || "", rate:voice.rate});
+}
+const SAMPLE = {en:{male:"This is the male voice.", female:"This is the female voice.", neutral:"This is the neutral voice."},
+  de:{male:"Das ist die männliche Stimme.", female:"Das ist die weibliche Stimme.", neutral:"Das ist die neutrale Stimme."}};
 
 /* -- natural voice: fetch once per clip, keep on the phone -- */
 const VOICE_CACHE = "zahi-fit-voice-v1";
@@ -716,8 +758,8 @@ function speak(text, {force=false, onend, translate=false, onready, patient=fals
   hush();
   const token = ++speechToken;
   // Offline, German instructions can't be translated, so the phone reads the English original in an English voice.
-  const fallback = () => { if(token !== speechToken) return; onready && onready(); speakDevice(text, token, onend, translate && voice.lang === "de" ? "en" : voice.lang); };
-  if(voice.engine !== "natural" || navigator.onLine === false){ fallback(); return; }
+  const fallback = () => { if(token !== speechToken) return; onready && onready(); speakDevice(text, token, onend, voice); };
+  if(voice.engine !== "natural"){ fallback(); return; }
   naturalClip(text, translate, patient).then(blob => {
     if(token !== speechToken) return;
     if(playerUrl) URL.revokeObjectURL(playerUrl);
@@ -1463,30 +1505,26 @@ function openGuide(ex, talk, startAt = 0){
 }
 
 /* ---------- Language & voice: choose, then confirm ---------- */
-function voiceEditor(onApplied){
-  const draft = {lang:voice.lang, gender:voice.gender, engine:voice.engine};
+function voiceEditor(onApplied, draft = {lang:voice.lang, gender:voice.gender}, onDraft){
   const box = h("div");
   const paint = () => {
-    const changed = draft.lang !== voice.lang || draft.gender !== voice.gender || draft.engine !== voice.engine;
+    const changed = draft.lang !== voice.lang || draft.gender !== voice.gender;
     const row = (label, opts, key) => h("div", null, h("div", {class:"field-label"}, label),
-      h("div", {class:"pick", role:"group"}, opts.map(([v,t]) => h("button", {"aria-pressed":String(draft[key] === v), onclick:() => { draft[key] = v; paint(); }}, t))));
+      h("div", {class:"pick", role:"group"}, opts.map(([v,t]) => h("button", {"aria-pressed":String(draft[key] === v), onclick:() => {
+        draft[key] = v; paint(); onDraft && onDraft();
+        unlockAudio(); speakWith(SAMPLE[draft.lang][draft.gender], draft);          // hear it straight away
+      }}, t))));
     box.replaceChildren(
       row("Language (exercises, guide and voice)", [["en","English"],["de","Deutsch"]], "lang"),
       row("Voice", [["male","Male"],["female","Female"],["neutral","Neutral"]], "gender"),
-      row("Voice quality", [["natural","Natural"],["device","Phone voice"]], "engine"),
-      h("p", {class:"tiny muted"}, draft.engine === "natural"
-        ? "Natural is a lifelike AI-generated voice (online). Each phrase downloads once and is saved on your phone, so it keeps working offline."
-        : "Phone voice uses your phone's own voices, fully offline. Male or female is set in your phone's text-to-speech settings (see the setup guide in Profile)."),
+      h("p", {class:"tiny muted"}, "Tap a voice to hear it. Voices come from your phone: free, offline, no credit used. For even more natural voices, add them in your phone's text-to-speech settings (guide below)."),
       h("div", {class:"apply-row"},
-        h("span", {class:"small " + (changed ? "" : "muted")}, changed
-          ? `New: ${langLabel(draft.lang)} · ${genderLabel(draft.gender)} · ${draft.engine === "natural" ? "Natural" : "Phone voice"}`
-          : `Current: ${langLabel(voice.lang)} · ${genderLabel(voice.gender)} · ${voice.engine === "natural" ? "Natural" : "Phone voice"}`),
+        h("span", {class:"small " + (changed ? "" : "muted")}, changed ? `New: ${langLabel(draft.lang)} · ${genderLabel(draft.gender)}` : `Current: ${langLabel(voice.lang)} · ${genderLabel(voice.gender)}`),
         h("button", {class:"btn " + (changed ? "primary" : "idle"), disabled:!changed, onclick:() => {
-          voice.lang = draft.lang; voice.gender = draft.gender; voice.engine = draft.engine; voice.name = "";
-          localStorage.setItem(K.lang, voice.lang); localStorage.setItem(K.gender, voice.gender); localStorage.setItem(K.engine, voice.engine); localStorage.setItem(K.voiceName, "");
+          voice.lang = draft.lang; voice.gender = draft.gender; voice.name = "";
+          localStorage.setItem(K.lang, voice.lang); localStorage.setItem(K.gender, voice.gender); localStorage.setItem(K.voiceName, "");
           toast(`Applied: ${langLabel(voice.lang)} · ${genderLabel(voice.gender)}`);
-          unlockAudio(); speak(phrase().test, {force:true, patient:true});
-          prefetchWorkoutVoice();
+          unlockAudio(); speak(phrase().test, {force:true});
           onApplied && onApplied();
           paint();
         }}, changed ? "Confirm" : "Confirmed")));
@@ -1520,9 +1558,9 @@ function phoneSetupGuide(){
          "Your phone uses that voice for the language, so repeat for English and Deutsch."),
       h("h3", {class:"section"}, "4. Use it in Zahi Fit"),
       ol("Fully close Chrome and Zahi Fit (recent apps › swipe away), then reopen so the new voices appear.",
-         "Profile › Language & voice: pick the language and Phone voice, then tap Confirm.",
+         "Profile › Language & voice: tap Male, Female or Neutral to hear each, then tap Confirm.",
          "Tap Test voice. If you hear the wrong voice, choose it in the Phone voice list."),
-      h("p", {class:"small muted section"}, "Tip: for the most lifelike voice, use Natural instead. Each phrase is saved on your phone the first time it plays."));
+      h("p", {class:"small muted section"}, "Tip: after installing new voices, fully close and reopen Zahi Fit, then pick Male, Female or Neutral in Profile › Language & voice."));
   });
 }
 
@@ -1900,7 +1938,8 @@ function renderProfile(m){
     rate.value = String([0.75,0.9,1.05].reduce((a,b) => Math.abs(b-voice.rate) < Math.abs(a-voice.rate) ? b : a));
     rate.addEventListener("change", () => { voice.rate = Number(rate.value); localStorage.setItem(K.rate, rate.value); });
     let phoneVoice = null;
-    if(voice.engine === "device"){
+    const vdraft = {lang:voice.lang, gender:voice.gender};
+    if(true){
       const vsel = h("select", {"aria-label":"Phone voice"});
       const fill = () => { const vs = voices(); vsel.replaceChildren(h("option", {value:""}, "Best match"), ...vs.slice(0,12).map(v => h("option", {value:v.name}, v.name))); vsel.value = vs.some(v => v.name === voice.name) ? voice.name : ""; };
       fill(); if("speechSynthesis" in window) speechSynthesis.onvoiceschanged = fill;
@@ -1908,17 +1947,20 @@ function renderProfile(m){
       phoneVoice = h("div", {class:"setting"}, h("span", null, "Phone voice"), vsel);
     }
     const testBtn = h("button", {class:"btn block section"});
-    const paintTest = () => actionState(testBtn, localStorage.getItem(K.tested) !== voiceSig(), "Test voice", "Test voice again");
+    const pending = () => vdraft.lang !== voice.lang || vdraft.gender !== voice.gender;
+    const paintTest = () => pending() ? actionState(testBtn, true, "Test selected voice")
+      : actionState(testBtn, localStorage.getItem(K.tested) !== voiceSig(), "Test voice", "Test voice again");
     testBtn.addEventListener("click", () => {
-      unlockAudio(); cue.start(); testBtn.textContent = "Preparing…";
-      const finish = () => { localStorage.setItem(K.tested, voiceSig()); paintTest(); };
-      speak(phrase().test, {force:true, patient:true, onready:() => { testBtn.textContent = "Playing…"; }, onend:finish});
-      setTimeout(() => { if(/Preparing|Playing/.test(testBtn.textContent)) finish(); }, 15000);
+      unlockAudio(); cue.start();
+      const wasPending = pending();
+      const finish = () => { if(!wasPending) localStorage.setItem(K.tested, voiceSig()); paintTest(); };
+      speakWith(SAY[vdraft.lang].test, {...vdraft, name:pending() ? "" : voice.name}, {onready:() => { testBtn.textContent = "Playing…"; }, onend:finish});
+      setTimeout(() => { if(/Playing/.test(testBtn.textContent)) finish(); }, 12000);
     });
     paintTest();
     rate.addEventListener("change", paintTest);
     vpanel.replaceChildren(h("h2", null, "Language & voice"),
-      voiceEditor(paintVoicePanel),
+      voiceEditor(paintVoicePanel, vdraft, () => paintTest()),
       h("div", {class:"section"}),
       h("div", {class:"setting"}, h("span", null, "During workouts"), mode),
       h("div", {class:"setting"}, h("span", null, "Rest timer sounds"), snd),
