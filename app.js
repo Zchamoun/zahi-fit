@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.8.0";
+const VERSION = "4.9.0";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -60,7 +60,20 @@ function loadUsers(){
   return r;
 }
 const people = loadUsers();
-const me = people.users.find(u => u.id === people.active);
+/* Accounts: each person on the phone has a username + password (stored only as a salted PBKDF2 hash).
+   Nothing belonging to a person is loaded until they're signed in. */
+const SESSION_KEY = "zahiFitSessionV49", FAILS_KEY = "zahiFitAuthFailsV49";
+function readSession(){
+  for(const store of [sessionStorage, localStorage]){
+    try{ const x = JSON.parse(store.getItem(SESSION_KEY)); if(x && x.id && (!x.exp || x.exp > Date.now())) return x; }catch{}
+  }
+  return null;
+}
+const session = readSession();
+const sessionUser = session ? people.users.find(u => u.id === session.id && u.auth) : null;
+const LOCKED = !sessionUser;
+const me = LOCKED ? {id:"__locked__", name:"", tone:0} : sessionUser;
+if(!LOCKED && people.active !== me.id){ people.active = me.id; write(USERS_KEY, people); }
 for(const k of Object.keys(K)) if(!DEVICE_KEYS.includes(k)) K[k] = nsKey(me.id, BASE_K[k]);
 const initialOf = u => (u.name || "?").trim().charAt(0).toUpperCase() || "?";
 function userStats(u){
@@ -70,10 +83,10 @@ function userStats(u){
     return `${hs.length} session${hs.length === 1 ? "" : "s"}${last ? ` · last ${last}` : ""}`;
   }catch{ return "0 sessions"; }
 }
-function switchUser(id){
-  if(id === people.active) return;
+function signOut(){
   try{ hush(); }catch{}
-  people.active = id; write(USERS_KEY, people);
+  try{ sessionStorage.removeItem(SESSION_KEY); }catch{}
+  try{ localStorage.removeItem(SESSION_KEY); }catch{}
   location.reload();
 }
 
@@ -818,7 +831,7 @@ function greeting(){ const hr = new Date().getHours(); return hr < 12 ? "Good mo
 function renderToday(m){
   const w = workouts[nextIndex], nm = splitName(w.name), week = lastDays(7), hs = getHistory();
   m.append(h("div", {class:"topline"}, h("div", null, h("div", {class:"hello"}, me.name && me.name !== "Me" ? `${greeting()}, ${me.name}` : greeting()), h("div", {class:"wordmark"}, "Zahi Fit")),
-    h("button", {class:"avatar", "data-tone":me.tone % 4, "aria-label":`${me.name} — switch person`, onclick:whoIsTraining}, initialOf(me))));
+    h("button", {class:"avatar", "data-tone":me.tone % 4, "aria-label":`${me.name} — account`, onclick:accountSheet}, initialOf(me))));
   if(!state) m.append(installCard("today"));
   if(state){
     const ex = curEx();
@@ -1542,24 +1555,227 @@ async function saveOffline(btn, status, repaint){
     : `Done. ${lines.length} clips saved for ${langLabel(voice.lang)} · ${genderLabel(voice.gender)}.`;
 }
 
-/* ---------- switching people ---------- */
-function personRow(u, {onclick, trailing} = {}){
-  return h("button", {class:"person-row", onclick},
-    h("span", {class:"avatar", "data-tone":u.tone % 4, "aria-hidden":"true"}, initialOf(u)),
-    h("div", null, h("b", null, u.name), h("span", null, userStats(u))),
-    trailing || null);
+/* ---------- accounts: password hashing ---------- */
+const te = new TextEncoder();
+const toB64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const fromB64 = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
+async function pbkdf2(secret, saltB64, iter){
+  const key = await crypto.subtle.importKey("raw", te.encode(secret), "PBKDF2", false, ["deriveBits"]);
+  return toB64(await crypto.subtle.deriveBits({name:"PBKDF2", hash:"SHA-256", salt:fromB64(saltB64), iterations:iter}, key, 256));
 }
-function whoIsTraining(){
-  sheet((card, close) => {
-    card.append(h("h2", null, "Who's training?"), h("p", {class:"small muted"}, "Each person has their own workouts, plan and settings on this phone."));
-    const list = h("div", {class:"sheet-list people"});
-    people.users.forEach(u => list.append(personRow(u, {
-      onclick:() => { if(u.id === me.id){ close(); return; } close(); switchUser(u.id); },
-      trailing:u.id === me.id ? h("span", {class:"state cur"}, "Training now") : h("span", {class:"state"}, "Switch")})));
-    card.append(list,
-      h("button", {class:"btn primary block section", onclick:() => { close(); addPerson(); }}, "+ Add a person"),
-      h("button", {class:"btn ghost block", onclick:() => { close(); go("profile"); }}, "Manage people"));
+async function makeSecret(secret){ const salt = toB64(crypto.getRandomValues(new Uint8Array(16))), iter = 210000; return {salt, iter, hash:await pbkdf2(secret, salt, iter)}; }
+async function checkSecret(secret, rec){
+  if(!rec || !rec.salt) return false;
+  const h2 = await pbkdf2(secret, rec.salt, rec.iter || 210000);
+  let diff = h2.length ^ rec.hash.length; for(let i = 0; i < Math.min(h2.length, rec.hash.length); i++) diff |= h2.charCodeAt(i) ^ rec.hash.charCodeAt(i);
+  return diff === 0;
+}
+function newRecoveryCode(){
+  const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789", r = crypto.getRandomValues(new Uint8Array(12));
+  const raw = [...r].map(x => abc[x % abc.length]).join("");
+  return `${raw.slice(0,4)}-${raw.slice(4,8)}-${raw.slice(8)}`;
+}
+const normCode = c => String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const normUser = u => String(u || "").trim().toLowerCase();
+const USERNAME_OK = u => /^[a-z0-9._-]{3,20}$/i.test(String(u || "").trim());
+const PASSWORD_OK = p => String(p || "").length >= 8;
+const accountFor = u => people.users.find(x => x.username && normUser(x.username) === normUser(u));
+const claimed = () => people.users.filter(u => u.auth);
+function hasData(u){ return ["history","plan","personal"].some(k => localStorage.getItem(nsKey(u.id, BASE_K[k]))); }
+function failState(u){ const f = read(FAILS_KEY, {}) || {}; return f[normUser(u)] || {n:0, until:0}; }
+function setFail(u, st){ const f = read(FAILS_KEY, {}) || {}; if(st) f[normUser(u)] = st; else delete f[normUser(u)]; write(FAILS_KEY, f); }
+function startSession(id, stay){
+  const rec = JSON.stringify({id, exp:stay ? Date.now() + 180 * 86400000 : 0});
+  try{ sessionStorage.removeItem(SESSION_KEY); localStorage.removeItem(SESSION_KEY); }catch{}
+  (stay ? localStorage : sessionStorage).setItem(SESSION_KEY, rec);
+  people.active = id; write(USERS_KEY, people);
+  location.reload();
+}
+
+/* ---------- sign-in / create account screens ---------- */
+function field(label, attrs){
+  const input = h("input", {class:"text-input", autocomplete:"off", autocapitalize:"none", spellcheck:"false", ...attrs});
+  const wrap = h("label", {class:"auth-field"}, h("span", null, label), input);
+  if(attrs.type === "password"){
+    const eye = h("button", {type:"button", class:"eye", "aria-label":"Show password", onclick:() => { input.type = input.type === "password" ? "text" : "password"; eye.textContent = input.type === "password" ? "Show" : "Hide"; }}, "Show");
+    wrap.append(eye);
+  }
+  return {wrap, input};
+}
+function renderAuth(mode, prefill){
+  document.body.classList.add("locked");
+  const m = $("#view"); m.replaceChildren();
+  mode = mode || (claimed().length ? "login" : "register");
+  const head = (title, sub) => [h("div", {class:"auth-brand"}, h("img", {src:"icon-192.png", alt:""}), h("span", null, "Zahi Fit")), h("h1", null, title), sub ? h("p", {class:"muted"}, sub) : null];
+  const msg = h("p", {class:"auth-msg", role:"alert"});
+  const say = (t, ok) => { msg.textContent = t || ""; msg.classList.toggle("ok", !!ok); };
+  const busy = (btn, on, label) => { btn.disabled = on; if(on) btn.textContent = "Checking…"; else btn.textContent = label; };
+
+  if(mode === "register"){
+    const u = field("Username", {placeholder:"e.g. zahi", maxlength:"20", value:prefill || ""});
+    const p1 = field("Password", {type:"password", placeholder:"At least 8 characters", autocomplete:"new-password"});
+    const p2 = field("Confirm password", {type:"password", autocomplete:"new-password"});
+    const legacy = people.users.filter(x => !x.auth && hasData(x));
+    let linkTo = legacy[0] ? legacy[0].id : "fresh";
+    const linkBox = legacy.length ? h("div", {class:"auth-link"},
+      h("b", null, "You already have training on this phone"), h("p", {class:"tiny muted"}, "Link it to this account so nothing is lost."),
+      h("div", {class:"pick", role:"group"}, [...legacy.map(x => [x.id, `${x.name} · ${userStats(x)}`]), ["fresh", "Start fresh"]].map(([v,t]) =>
+        h("button", {"aria-pressed":String(linkTo === v), onclick:e => { linkTo = v; e.currentTarget.parentNode.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b === e.currentTarget))); }}, t)))) : null;
+    const go1 = h("button", {class:"btn block"}, "Create account");
+    const check = () => { const ok = USERNAME_OK(u.input.value) && PASSWORD_OK(p1.input.value) && p1.input.value === p2.input.value; actionState(go1, ok); go1.disabled = !ok;
+      say(u.input.value && !USERNAME_OK(u.input.value) ? "Username: 3–20 letters, numbers, dots, dashes or underscores." : p1.input.value && !PASSWORD_OK(p1.input.value) ? "Password needs at least 8 characters." : p2.input.value && p1.input.value !== p2.input.value ? "Passwords don't match." : ""); };
+    [u, p1, p2].forEach(f => f.input.addEventListener("input", check));
+    go1.addEventListener("click", async () => {
+      const name = u.input.value.trim();
+      if(accountFor(name)){ say("That username is already used on this phone."); return; }
+      busy(go1, true);
+      const code = newRecoveryCode();
+      let acct = linkTo !== "fresh" ? people.users.find(x => x.id === linkTo) : people.users.find(x => !x.auth && !hasData(x));
+      if(!acct){
+        const used = people.users.map(x => x.tone % 4);
+        acct = {id:"u" + Date.now().toString(36), tone:[0,1,2,3].find(t => !used.includes(t)) ?? people.users.length % 4, created:Date.now()};
+        people.users.push(acct);
+      }
+      acct.username = name; acct.name = acct.name && acct.name !== "Me" ? acct.name : name;
+      acct.auth = await makeSecret(p1.input.value); acct.recovery = await makeSecret(normCode(code));
+      write(USERS_KEY, people);
+      renderAuth("recovery", {name, code});
+    });
+    m.append(h("section", {class:"auth"}, ...head("Create your account", "Your workouts, plan and settings stay private to your account on this phone."),
+      u.wrap, p1.wrap, p2.wrap, linkBox, msg, go1,
+      claimed().length ? h("button", {class:"linkish block", onclick:() => renderAuth("login")}, "Already have an account? Sign in") : null));
+    check(); setTimeout(() => u.input.focus(), 100);
+    return;
+  }
+
+  if(mode === "recovery"){
+    const {name, code} = prefill;
+    m.append(h("section", {class:"auth"}, ...head("Save your recovery code", `If you forget the password for ${name}, this code lets you set a new one. It's shown only once.`),
+      h("div", {class:"code-box"}, code),
+      h("button", {class:"btn block", onclick:async e => { try{ await navigator.clipboard.writeText(code); toast("Code copied."); }catch{ toast("Couldn't copy — write it down."); } }}, "Copy code"),
+      h("p", {class:"tiny muted"}, "Keep it somewhere safe outside this app, e.g. your password manager or a note."),
+      h("button", {class:"btn primary block section", onclick:() => renderAuth("login", name)}, "I've saved it — continue to sign in")));
+    return;
+  }
+
+  if(mode === "forgot"){
+    const u = field("Username", {value:prefill || "", maxlength:"20"});
+    const c = field("Recovery code", {placeholder:"XXXX-XXXX-XXXX", maxlength:"14"});
+    const p1 = field("New password", {type:"password", placeholder:"At least 8 characters", autocomplete:"new-password"});
+    const p2 = field("Confirm new password", {type:"password", autocomplete:"new-password"});
+    const btn = h("button", {class:"btn block"}, "Set new password");
+    const check = () => { const ok = USERNAME_OK(u.input.value) && normCode(c.input.value).length === 12 && PASSWORD_OK(p1.input.value) && p1.input.value === p2.input.value; actionState(btn, ok); btn.disabled = !ok; };
+    [u, c, p1, p2].forEach(f => f.input.addEventListener("input", check));
+    btn.addEventListener("click", async () => {
+      const acct = accountFor(u.input.value);
+      busy(btn, true);
+      if(!acct || !(await checkSecret(normCode(c.input.value), acct.recovery))){ busy(btn, false, "Set new password"); say("Username or recovery code isn't right."); return; }
+      const code = newRecoveryCode();
+      acct.auth = await makeSecret(p1.input.value); acct.recovery = await makeSecret(normCode(code)); write(USERS_KEY, people); setFail(acct.username, null);
+      renderAuth("recovery", {name:acct.username, code});
+    });
+    const erase = h("button", {class:"linkish block danger-link", onclick:async () => {
+      const acct = accountFor(u.input.value);
+      if(!acct){ say("Enter the username to erase first."); return; }
+      if(!(await ask(`Erase ${acct.username}?`, "Without the password or recovery code the account can't be unlocked. Erasing deletes its workouts, plan and settings from this phone so you can start again. This can't be undone.", "Erase account", true))) return;
+      Object.keys(BASE_K).filter(k => !DEVICE_KEYS.includes(k)).forEach(k => localStorage.removeItem(nsKey(acct.id, BASE_K[k])));
+      people.users = people.users.filter(x => x.id !== acct.id);
+      if(!people.users.length) people.users.push({id:"main", name:"Me", tone:0, created:Date.now()});
+      write(USERS_KEY, people); setFail(acct.username, null); toast("Account erased."); renderAuth();
+    }}, "No recovery code? Erase this account and start over");
+    m.append(h("section", {class:"auth"}, ...head("Reset your password", "Use the recovery code you saved when you created the account."),
+      u.wrap, c.wrap, p1.wrap, p2.wrap, msg, btn, h("button", {class:"linkish block", onclick:() => renderAuth("login", u.input.value)}, "Back to sign in"), erase));
+    check();
+    return;
+  }
+
+  // sign in
+  const u = field("Username", {value:prefill || "", maxlength:"20", autocomplete:"username"});
+  const p = field("Password", {type:"password", autocomplete:"current-password"});
+  const stay = h("input", {type:"checkbox", checked:true, id:"stay"});
+  const btn = h("button", {class:"btn block"}, "Sign in");
+  const check = () => { const ok = !!u.input.value.trim() && !!p.input.value; actionState(btn, ok); btn.disabled = !ok; };
+  [u, p].forEach(f => { f.input.addEventListener("input", check); f.input.addEventListener("keydown", e => { if(e.key === "Enter" && !btn.disabled) btn.click(); }); });
+  btn.addEventListener("click", async () => {
+    const name = u.input.value.trim(), fs = failState(name);
+    if(fs.until > Date.now()){ say(`Too many attempts. Try again in ${Math.ceil((fs.until - Date.now()) / 1000)} seconds.`); return; }
+    busy(btn, true);
+    const acct = accountFor(name);
+    const ok = acct && await checkSecret(p.input.value, acct.auth);
+    if(!ok){
+      const n = fs.n + 1; setFail(name, {n: n >= 5 ? 0 : n, until: n >= 5 ? Date.now() + 30000 : 0});
+      busy(btn, false, "Sign in"); check(); p.input.value = ""; check();
+      say(n >= 5 ? "Too many attempts. Try again in 30 seconds." : "Username or password isn't right."); return;
+    }
+    setFail(name, null);
+    startSession(acct.id, stay.checked);
   });
+  m.append(h("section", {class:"auth"}, ...head("Sign in", "Welcome back."),
+    u.wrap, p.wrap,
+    h("label", {class:"stay", for:"stay"}, stay, h("span", null, h("b", null, "Stay signed in"), h("small", null, "On this phone, for up to 6 months. Untick on a shared phone."))),
+    msg, btn,
+    h("button", {class:"linkish block", onclick:() => renderAuth("forgot", u.input.value)}, "Forgot password?"),
+    h("div", {class:"auth-sep"}, h("span", null, "or")),
+    h("button", {class:"btn block", onclick:() => renderAuth("register")}, "Create a new account")));
+  check(); setTimeout(() => (prefill ? p : u).input.focus(), 100);
+}
+
+/* ---------- account (Profile) ---------- */
+function accountSheet(){
+  sheet((card, close) => {
+    card.append(h("div", {class:"acct-head"}, h("span", {class:"avatar", "data-tone":me.tone % 4}, initialOf(me)),
+        h("div", null, h("b", null, me.name), h("span", null, `@${me.username} · ${userStats(me)}`))),
+      h("button", {class:"btn block section", onclick:() => { close(); go("profile"); }}, "Account & settings"),
+      h("button", {class:"btn block section", onclick:async () => { close(); if(await ask("Sign out?", state ? "Your workout in progress is saved and waits for you." : "You'll need your password to sign back in.", "Sign out")) signOut(); }}, "Sign out"));
+  });
+}
+function passwordSheet(){
+  sheet((card, close) => {
+    const cur = field("Current password", {type:"password", autocomplete:"current-password"});
+    const p1 = field("New password", {type:"password", placeholder:"At least 8 characters", autocomplete:"new-password"});
+    const p2 = field("Confirm new password", {type:"password", autocomplete:"new-password"});
+    const msg = h("p", {class:"auth-msg"}), btn = h("button", {class:"btn block section", disabled:true}, "Change password");
+    const check = () => { const ok = !!cur.input.value && PASSWORD_OK(p1.input.value) && p1.input.value === p2.input.value; actionState(btn, ok); btn.disabled = !ok; };
+    [cur, p1, p2].forEach(f => f.input.addEventListener("input", check));
+    btn.addEventListener("click", async () => {
+      btn.disabled = true; btn.textContent = "Checking…";
+      if(!(await checkSecret(cur.input.value, me.auth))){ msg.textContent = "Current password isn't right."; btn.textContent = "Change password"; check(); return; }
+      me.auth = await makeSecret(p1.input.value); write(USERS_KEY, people); close(); toast("Password changed.");
+    });
+    card.append(h("h2", null, "Change password"), cur.wrap, p1.wrap, p2.wrap, msg, btn); check();
+  });
+}
+async function newCodeFlow(){
+  const code = newRecoveryCode(); me.recovery = await makeSecret(normCode(code)); write(USERS_KEY, people);
+  sheet(card => card.append(h("h2", null, "New recovery code"), h("p", {class:"small muted"}, "Your old code no longer works. Save this one somewhere safe."),
+    h("div", {class:"code-box"}, code), h("button", {class:"btn block", onclick:async () => { try{ await navigator.clipboard.writeText(code); toast("Code copied."); }catch{ toast("Couldn't copy — write it down."); } }}, "Copy code")));
+}
+function deleteAccountSheet(){
+  sheet((card, close) => {
+    const p = field("Password", {type:"password", autocomplete:"current-password"});
+    const msg = h("p", {class:"auth-msg"}), btn = h("button", {class:"btn danger block section"}, "Delete my account");
+    btn.addEventListener("click", async () => {
+      btn.disabled = true; btn.textContent = "Checking…";
+      if(!(await checkSecret(p.input.value, me.auth))){ msg.textContent = "Password isn't right."; btn.disabled = false; btn.textContent = "Delete my account"; return; }
+      Object.keys(BASE_K).filter(k => !DEVICE_KEYS.includes(k)).forEach(k => localStorage.removeItem(nsKey(me.id, BASE_K[k])));
+      people.users = people.users.filter(x => x.id !== me.id);
+      if(!people.users.length) people.users.push({id:"main", name:"Me", tone:0, created:Date.now()});
+      write(USERS_KEY, people); close(); signOut();
+    });
+    card.append(h("h2", null, "Delete account"), h("p", {class:"small muted"}, `This erases ${me.name}'s workouts, plan and settings from this phone. Back up your history first if you might need it. This can't be undone.`), p.wrap, msg, btn);
+  });
+}
+function accountPanel(){
+  return h("section", {class:"panel"},
+    h("div", {class:"acct-head"}, h("span", {class:"avatar", "data-tone":me.tone % 4}, initialOf(me)),
+      h("div", null, h("b", null, me.name), h("span", null, `Signed in as @${me.username}`))),
+    h("div", {class:"acct-actions section"},
+      h("button", {class:"btn sm", onclick:() => nameSheet("Display name", me.name, "Save name", name => { me.name = name; write(USERS_KEY, people); go("profile"); toast("Name saved."); })}, "Display name"),
+      h("button", {class:"btn sm", onclick:passwordSheet}, "Change password"),
+      h("button", {class:"btn sm", onclick:newCodeFlow}, "New recovery code"),
+      h("button", {class:"btn sm", onclick:async () => { if(await ask("Sign out?", state ? "Your workout in progress is saved and waits for you." : "You'll need your password to sign back in.", "Sign out")) signOut(); }}, "Sign out")),
+    h("p", {class:"tiny muted"}, "Your account lives on this phone. Other people using Zahi Fit here sign in with their own accounts and can't see yours."),
+    h("button", {class:"linkish danger-link", onclick:deleteAccountSheet}, "Delete account"));
 }
 function nameSheet(title, initial, confirmLabel, onSave){
   sheet((card, close) => {
@@ -1572,39 +1788,6 @@ function nameSheet(title, initial, confirmLabel, onSave){
     card.append(h("h2", null, title), input, btn);
     paint(); setTimeout(() => input.focus(), 150);
   });
-}
-function addPerson(){
-  if(people.users.length >= 8){ toast("Up to 8 people per phone."); return; }
-  nameSheet("Add a person", "", "Add and switch", name => {
-    const id = "u" + Date.now().toString(36);
-    const used = people.users.map(u => u.tone % 4);
-    const tone = [0,1,2,3].find(t => !used.includes(t)) ?? people.users.length % 4;
-    people.users.push({id, name, tone, created:Date.now()});
-    write(USERS_KEY, people);
-    switchUser(id);                     // new person starts with the short setup
-  });
-}
-function renamePerson(u){
-  nameSheet("Rename", u.name, "Save name", name => { u.name = name; write(USERS_KEY, people); go("profile"); toast("Name saved."); });
-}
-async function deletePerson(u){
-  if(u.id === me.id) return;
-  if(!(await ask(`Delete ${u.name}?`, `All of ${u.name}'s workouts, plan and settings on this phone will be erased. Other people aren't affected.`, "Delete", true))) return;
-  Object.keys(BASE_K).filter(k => !DEVICE_KEYS.includes(k)).forEach(k => localStorage.removeItem(nsKey(u.id, BASE_K[k])));
-  people.users = people.users.filter(x => x.id !== u.id);
-  write(USERS_KEY, people); go("profile"); toast(`${u.name} removed.`);
-}
-function peoplePanel(){
-  const list = h("div", {class:"sheet-list people"});
-  people.users.forEach(u => {
-    const isMe = u.id === me.id;
-    list.append(h("div", {class:"person-line"},
-      personRow(u, {onclick:() => isMe ? renamePerson(u) : switchUser(u.id), trailing:h("span", {class:"state" + (isMe ? " cur" : "")}, isMe ? "You · rename" : "Switch")}),
-      isMe ? null : h("button", {class:"icon-btn plain del", "aria-label":`Delete ${u.name}`, onclick:() => deletePerson(u)}, "🗑")));
-  });
-  return h("section", {class:"panel"}, h("h2", null, "People on this phone"),
-    h("p", {class:"tiny muted"}, "Everyone's workouts, plan, voice and coach chat are kept apart. Switching isn't password-protected — it keeps data tidy, not private."),
-    list, h("button", {class:"btn primary block section", onclick:addPerson}, "+ Add a person"));
 }
 
 /* ---------- Profile & settings ---------- */
@@ -1682,7 +1865,7 @@ function download(name, data){
 }
 function renderProfile(m){
   m.append(topline("Profile"));
-  m.append(peoplePanel(), h("h2", {class:"section profile-for"}, `${me.name}'s settings`));
+  m.append(accountPanel(), h("h2", {class:"section profile-for"}, `${me.name}'s settings`));
   // Plan (live preview updates as you choose; Save applies it)
   const pd = clone(plan);
   const preview = h("div", {class:"plan-preview"});
@@ -1914,6 +2097,9 @@ document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () =>
 document.addEventListener("pointerdown", unlockAudio, {once:true});
 document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") paintRest(); });
 setupSW();
-go(state ? "workout" : "today");
-if(!personal && !read(K.onboarded, false) && !getHistory().length) onboarding();
+if(LOCKED) renderAuth();
+else {
+  go(state ? "workout" : "today");
+  if(!personal && !read(K.onboarded, false) && !getHistory().length) onboarding();
+}
 })();

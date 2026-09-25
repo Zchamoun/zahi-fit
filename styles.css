@@ -447,3 +447,32 @@ details.tech[open] summary::after{content:"–"}
 .advice .superset{display:block;font-size:13px;font-weight:800;color:#a24a12;background:var(--orange-soft);padding:6px 10px;border-radius:10px;margin-top:8px}
 [data-block="Durability"] .tt-label{color:var(--ink)}
 .small-input{max-width:160px;margin-top:8px}
+
+/* v4.9: accounts */
+body.locked .tabs{display:none}
+.auth{max-width:420px;margin:0 auto;padding-top:8px}
+.auth-brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;margin:6px 0 22px}
+.auth-brand img{width:40px;height:40px;border-radius:10px}
+.auth h1{font-size:30px}
+.auth .muted{margin:6px 0 18px}
+.auth-field{position:relative;display:block;margin-top:14px}
+.auth-field>span{display:block;font-weight:800;font-size:14px;margin-bottom:6px}
+.auth-field .text-input{margin-top:0;padding-right:64px}
+.auth-field .eye{position:absolute;right:8px;bottom:8px;height:36px;padding:0 10px;border:0;border-radius:10px;background:var(--card);color:var(--teal);font-weight:800;font-size:13px}
+.auth-msg{min-height:20px;margin:12px 0 8px;color:var(--warn);font-size:14px;font-weight:700}
+.auth-msg.ok{color:var(--teal)}
+.auth .btn.block+.btn,.auth .linkish.block{margin-top:10px}
+.linkish.block{display:block;width:100%;text-align:center;padding:10px}
+.danger-link{color:var(--warn)!important;font-size:13px}
+.auth-sep{display:flex;align-items:center;gap:10px;margin:14px 0 4px;color:var(--faint);font-size:13px}
+.auth-sep::before,.auth-sep::after{content:"";flex:1;height:1px;background:var(--line)}
+.stay{display:flex;align-items:flex-start;gap:12px;margin-top:16px;padding:12px;border-radius:14px;background:var(--card);box-shadow:var(--shadow)}
+.stay input{width:22px;height:22px;margin-top:2px;accent-color:var(--teal);flex:none}
+.stay b{display:block;font-size:15px}.stay small{display:block;color:var(--muted);font-size:12.5px}
+.auth-link{margin-top:18px;padding:14px;border-radius:14px;background:var(--teal-soft)}
+.auth-link .pick button{min-height:40px;font-size:14px}
+.code-box{margin:10px 0 12px;padding:18px;border-radius:16px;background:var(--card);box-shadow:var(--shadow),inset 0 0 0 2px var(--teal);font:700 30px/1 var(--num);letter-spacing:.08em;text-align:center;font-variant-numeric:tabular-nums}
+.acct-head{display:flex;align-items:center;gap:12px}
+.acct-head .avatar{width:48px;height:48px;display:grid;place-items:center;border-radius:50%;font-weight:800;font-size:20px;flex:none}
+.acct-head b{display:block;font-weight:800;font-size:17px}.acct-head span:not(.avatar){font-size:13px;color:var(--muted)}
+.acct-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
