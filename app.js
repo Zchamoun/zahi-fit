@@ -3,14 +3,14 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.9.3";
+const VERSION = "4.9.4";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
   history:"history", next:"nextWorkout", active:"activeWorkoutV230",
   plan:"zahiFitProfileV25", personal:"zahiFitPersonalProfileV27",
   voiceMode:"zahiFitVoiceModeV27", audio:"zahiFitAudioEnabledV27",
-  rate:"zahiFitVoiceRateV312", voiceName:"zahiFitVoiceNameV313",
+  rate:"zahiFitVoiceRateV312", voiceName:"zahiFitVoiceNameV313", voiceMale:"zahiFitVoiceMaleV494", voiceFemale:"zahiFitVoiceFemaleV494",
   chat:"zahiFitPTConversationV26", onboarded:"zahiFitOnboardedV4",
   lang:"zahiFitVoiceLangV41", gender:"zahiFitVoiceGenderV41", engine:"zahiFitVoiceEngineV41",
   tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44", videoPick:"zahiFitVideoPickV47"
@@ -550,7 +550,9 @@ const voice = {
   name: localStorage.getItem(K.voiceName) || "",
   lang: localStorage.getItem(K.lang) === "de" ? "de" : "en",
   gender: ["male","female","neutral"].includes(localStorage.getItem(K.gender)) ? localStorage.getItem(K.gender) : "male",
-  engine: "device"          // phone voices only: free, offline, no OpenAI credit
+  engine: "device",         // phone voices only: free, offline, no OpenAI credit
+  maleName: localStorage.getItem(K.voiceMale) || "",
+  femaleName: localStorage.getItem(K.voiceFemale) || ""
 };
 let actx = null;
 function unlockAudio(){ try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if(actx.state === "suspended") actx.resume(); }catch{} }
@@ -568,17 +570,24 @@ const cue = {
 
 /* Spoken phrases. Workout cues are written natively in each language; exercise
    instructions are English in the app and translated by the voice worker for German. */
+const pickOne = list => list[Math.floor(Math.random() * list.length)];
+const durEN = sec => sec >= 60 ? `${Math.floor(sec/60)} minute${sec >= 120 ? "s" : ""}${sec % 60 ? ` ${sec % 60} seconds` : ""}` : `${sec} seconds`;
+const durDE = sec => sec >= 60 ? `${Math.floor(sec/60) === 1 ? "eine Minute" : `${Math.floor(sec/60)} Minuten`}${sec % 60 ? ` ${sec % 60} Sekunden` : ""}` : `${sec} Sekunden`;
 const SAY = {
   en:{
-    rest:sec => `Rest. ${sec >= 60 ? `${Math.floor(sec/60)} minute${sec >= 120 ? "s" : ""}${sec % 60 ? ` ${sec % 60} seconds` : ""}` : `${sec} seconds`}.`,
-    ten:"Ten seconds.", done:"Rest complete. Next set, when you're ready.", good:"Nice set. Keep it smooth.",
-    test:"Hi, I'm your Zahi Fit coach. Let's have a good session today.",
+    rest:sec => pickOne([`Nice work. Rest for ${durEN(sec)}.`, `Good set. Take ${durEN(sec)} to recover.`, `Well done. Breathe and rest for ${durEN(sec)}.`]),
+    get ten(){ return pickOne(["Ten seconds. Get ready.", "Ten seconds. Set yourself up.", "Ten seconds to go. You've got this."]); },
+    get done(){ return pickOne(["Rest's done. Next set — you've got this.", "Time to go. Strong and steady.", "Let's go. Nice and controlled."]); },
+    get good(){ return pickOne(["Great set!", "Nice work, that looked strong.", "Well done. Keep it smooth.", "Strong effort. Keep going."]); },
+    test:"Hi, I'm your Zahi Fit coach. Let's have a great session today. You've got this.",
     step:(n, t, x, c) => `Step ${n}. ${t}. ${x}${c ? ` Remember: ${c}.` : ""}`
   },
   de:{
-    rest:sec => `Pause. ${sec >= 60 ? `${Math.floor(sec/60) === 1 ? "Eine Minute" : `${Math.floor(sec/60)} Minuten`}${sec % 60 ? ` ${sec % 60} Sekunden` : ""}` : `${sec} Sekunden`}.`,
-    ten:"Noch zehn Sekunden.", done:"Pause vorbei. Nächster Satz, wenn du bereit bist.", good:"Guter Satz. Bleib sauber in der Bewegung.",
-    test:"Hallo, ich bin dein Zahi Fit Coach. Lass uns heute gut trainieren.",
+    rest:sec => pickOne([`Gute Arbeit. Pause für ${durDE(sec)}.`, `Guter Satz. Nimm dir ${durDE(sec)} zum Erholen.`, `Stark. Atme durch und pausiere ${durDE(sec)}.`]),
+    get ten(){ return pickOne(["Noch zehn Sekunden. Mach dich bereit.", "Zehn Sekunden. Geh in Position.", "Noch zehn Sekunden. Du schaffst das."]); },
+    get done(){ return pickOne(["Pause vorbei. Nächster Satz – du schaffst das.", "Los geht's. Stark und ruhig.", "Weiter geht's. Schön kontrolliert."]); },
+    get good(){ return pickOne(["Super Satz!", "Gute Arbeit, das sah stark aus.", "Gut gemacht. Bleib sauber in der Bewegung.", "Starke Leistung. Weiter so."]); },
+    test:"Hallo, ich bin dein Zahi Fit Coach. Lass uns heute stark trainieren. Du schaffst das.",
     step:(n, t, x, c) => `Schritt ${n}. ${t}. ${x}${c ? ` Merke: ${c}.` : ""}`
   }
 };
@@ -655,7 +664,10 @@ const hasLang = lang => ("speechSynthesis" in window) && (speechSynthesis.getVoi
 function pickVoice(set){
   if(!hasLang(set.lang)) return {v:null, exact:false, mid:false};          // let the phone use its own voice for that language
   const vs = voices(set.lang);
-  if(set.name){ const own = vs.find(v => v.name === set.name); if(own) return {v:own, exact:true}; }
+  // a voice the person assigned to Male or Female is used as-is (it's a real voice, so no pitch trick)
+  const slot = set.gender === "male" ? (set.maleName ?? voice.maleName) : set.gender === "female" ? (set.femaleName ?? voice.femaleName) : "";
+  if(slot){ const own = vs.find(v => v.name === slot); if(own) return {v:own, exact:true}; }
+  if(set.gender === "neutral" && set.name){ const own = vs.find(v => v.name === set.name); if(own) return {v:own, exact:true}; }
   if(set.gender === "neutral"){
     const plain = vs.find(v => !genderOf(v));
     if(plain) return {v:plain, exact:false};
@@ -667,9 +679,11 @@ function pickVoice(set){
 }
 /* Tone: a clear pitch difference so male, female and neutral always sound different —
    stronger when the phone has only one voice for the language, milder on a truly gendered voice. */
+/* Male: calm, steady, a little slower. Female: bright and warm. Real voices get only a light touch;
+   a shared single voice gets a moderate shift (big shifts sound robotic). Neutral is unchanged. */
 function toneFor(gender, exact, mid){
-  if(gender === "male") return exact ? {pitch:0.9, rate:0.97} : {pitch:0.68, rate:0.95};
-  if(gender === "female") return exact ? {pitch:1.1, rate:1.0} : {pitch:1.32, rate:1.02};
+  if(gender === "male") return exact ? {pitch:0.97, rate:0.95} : {pitch:0.84, rate:0.93};
+  if(gender === "female") return exact ? {pitch:1.03, rate:1.0} : {pitch:1.12, rate:1.0};
   return mid ? {pitch:0.86, rate:1.0} : {pitch:1.0, rate:1.0};
 }
 let voicesWaiter = null;
@@ -702,10 +716,10 @@ async function speakDevice(text, token, onend, set = voice){
 /* Play something in a voice that isn't saved yet (previews while choosing). */
 function speakWith(text, set, {onend, onready} = {}){
   hush(); const token = ++speechToken; onready && onready();
-  speakDevice(text, token, onend, {lang:set.lang, gender:set.gender, name:set.name || "", rate:voice.rate});
+  speakDevice(text, token, onend, {lang:set.lang, gender:set.gender, name:set.name || "", rate:voice.rate, maleName:set.maleName ?? voice.maleName, femaleName:set.femaleName ?? voice.femaleName});
 }
-const SAMPLE = {en:{male:"This is the male voice.", female:"This is the female voice.", neutral:"This is the neutral voice."},
-  de:{male:"Das ist die männliche Stimme.", female:"Das ist die weibliche Stimme.", neutral:"Das ist die neutrale Stimme."}};
+const SAMPLE = {en:{male:"This is the male voice. Let's make today a strong one.", female:"This is the female voice. Let's make today a strong one.", neutral:"This is the neutral voice."},
+  de:{male:"Das ist die männliche Stimme. Lass uns heute stark trainieren.", female:"Das ist die weibliche Stimme. Lass uns heute stark trainieren.", neutral:"Das ist die neutrale Stimme."}};
 
 /* -- natural voice: fetch once per clip, keep on the phone -- */
 const VOICE_CACHE = "zahi-fit-voice-v1";
@@ -1556,6 +1570,11 @@ function phoneSetupGuide(){
       ol("In Install voice data, tap a language you downloaded.",
          "Tap each voice (Voice I, II, III…) to hear it, and select the one you want.",
          "Your phone uses that voice for the language, so repeat for English and Deutsch."),
+      h("h3", {class:"section"}, "Want a truly male (or female) voice?"),
+      ol("Chrome often shows one voice per language or accent. Give one accent a male voice, e.g. English (United Kingdom):",
+         "Speech Services by Google › gear › Install voice data › English (United Kingdom) › tap each voice to listen and select a male one.",
+         "Reopen Zahi Fit › Profile › Language & voice › choose Male › Confirm › Voice used for Male: pick the English (United Kingdom) voice.",
+         "Do the same with another accent (e.g. English (United States)) set to a female voice for Female."),
       h("h3", {class:"section"}, "4. Use it in Zahi Fit"),
       ol("Fully close Chrome and Zahi Fit (recent apps › swipe away), then reopen so the new voices appear.",
          "Profile › Language & voice: tap Male, Female or Neutral to hear each, then tap Confirm.",
@@ -1940,11 +1959,19 @@ function renderProfile(m){
     let phoneVoice = null;
     const vdraft = {lang:voice.lang, gender:voice.gender};
     if(true){
-      const vsel = h("select", {"aria-label":"Phone voice"});
-      const fill = () => { const vs = voices(); vsel.replaceChildren(h("option", {value:""}, "Best match"), ...vs.slice(0,12).map(v => h("option", {value:v.name}, v.name))); vsel.value = vs.some(v => v.name === voice.name) ? voice.name : ""; };
+      const g = voice.gender, key = g === "male" ? "maleName" : g === "female" ? "femaleName" : "name";
+      const store = g === "male" ? K.voiceMale : g === "female" ? K.voiceFemale : K.voiceName;
+      const vsel = h("select", {"aria-label":`Voice used for ${genderLabel(g)}`});
+      const label = v => { const tag = genderOf(v); return `${v.name}${v.lang ? ` · ${v.lang}` : ""}${tag ? ` · ${tag}` : ""}`; };
+      const fill = () => { const vs = voices(); vsel.replaceChildren(h("option", {value:""}, "Auto (best match)"), ...vs.slice(0,20).map(v => h("option", {value:v.name}, label(v)))); vsel.value = vs.some(v => v.name === voice[key]) ? voice[key] : ""; };
       fill(); if("speechSynthesis" in window) speechSynthesis.onvoiceschanged = fill;
-      vsel.addEventListener("change", () => { voice.name = vsel.value; localStorage.setItem(K.voiceName, voice.name); paintTest(); });
-      phoneVoice = h("div", {class:"setting"}, h("span", null, "Phone voice"), vsel);
+      vsel.addEventListener("change", () => {
+        voice[key] = vsel.value; localStorage.setItem(store, vsel.value); paintTest();
+        unlockAudio(); speakWith(SAMPLE[voice.lang][g], {lang:voice.lang, gender:g, name:voice.name});
+      });
+      phoneVoice = h("div", null, h("div", {class:"setting"}, h("span", null, `Voice used for ${genderLabel(g)}`), vsel),
+        g !== "neutral" ? h("p", {class:"tiny muted"}, `For the most natural ${g} voice, give one of your phone's voices a ${g} sound in Google's settings, then choose it here. `,
+          h("button", {class:"linkish", onclick:phoneSetupGuide}, "Show me how")) : null);
     }
     const testBtn = h("button", {class:"btn block section"});
     const pending = () => vdraft.lang !== voice.lang || vdraft.gender !== voice.gender;
