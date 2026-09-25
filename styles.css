@@ -489,15 +489,6 @@ body.locked .tabs{display:none}
 .finder-help p{margin:4px 0}
 .finder-list{margin-top:10px}.finder-row .icon-btn{width:44px;height:44px;font-size:16px}
 
-/* v4.9.6: German neural voice card */
-.neural-card{margin-top:10px;padding:14px;border-radius:14px;background:var(--teal-soft)}
-.neural-card b{display:block;font-weight:800}
-.neural-card p{margin:6px 0}
-.neural-card .btn{margin-top:8px}
-.dl-bar{height:8px;border-radius:4px;background:#ffffff99;margin-top:10px;overflow:hidden;display:none}
-.neural-card.busy .dl-bar{display:block}
-.dl-bar i{display:block;height:100%;width:0;background:var(--teal);transition:width .3s}
-
 .guide-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0 4px}
 .guide-tabs button{justify-content:center}
 .finder-help .linkish{margin-top:6px;padding:4px 0}

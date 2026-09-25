@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.9.6";
+const VERSION = "4.9.7";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -13,7 +13,7 @@ const K = {
   rate:"zahiFitVoiceRateV312", voiceName:"zahiFitVoiceNameV313", voiceMale:"zahiFitVoiceMaleV494", voiceFemale:"zahiFitVoiceFemaleV494",
   chat:"zahiFitPTConversationV26", onboarded:"zahiFitOnboardedV4",
   lang:"zahiFitVoiceLangV41", gender:"zahiFitVoiceGenderV41", engine:"zahiFitVoiceEngineV41",
-  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44", videoPick:"zahiFitVideoPickV47", neural:"zahiFitNeuralV496"
+  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44", videoPick:"zahiFitVideoPickV47"
 };
 
 /* ---------- tiny helpers ---------- */
@@ -50,7 +50,7 @@ const HEIGHT = {Strength:5, Power:4, Hypertrophy:4, Conditioning:3, Durability:3
    Each person has their own history, plan, profile, voice settings, coach chat and in-progress workout.
    The first person keeps the original storage keys, so existing data needs no migration. */
 const USERS_KEY = "zahiFitUsersV45";
-const DEVICE_KEYS = ["installHide", "videoPick", "neural"];                 // shared by everyone on this phone
+const DEVICE_KEYS = ["installHide", "videoPick"];                 // shared by everyone on this phone
 const BASE_K = {...K};
 const nsKey = (id, base) => id === "main" ? base : `zf.${id}.${base}`;
 function loadUsers(){
@@ -543,6 +543,24 @@ function todayTarget(ex){
    - "natural" (disabled since v4.9.3 to avoid OpenAI credit): neural voices from the zahi-fit-voice
      Cloudflare Worker. Every clip is cached on the phone, so it plays instantly next time and offline.
    - "device": the phone's own voice, used offline or when the natural voice can't be reached. */
+/* The voice chosen for Male / Female, remembered separately for each language: {en:"…", de:"…"}.
+   Older versions stored one name for all languages; it's kept and only used where it fits. */
+function parseSlot(raw){
+  if(!raw) return {};
+  try{ const o = JSON.parse(raw); if(o && typeof o === "object") return o; }catch{}
+  return {_any:raw};
+}
+const slotName = (g, lang) => (voice.slots[g] && (voice.slots[g][lang] || voice.slots[g]._any)) || "";
+function setSlot(g, lang, name){
+  const o = {...(voice.slots[g] || {})};
+  if(o._any){   // older single-name format: file it under the language that voice belongs to
+    const owner = Object.keys(LANG_TAG).find(l => (("speechSynthesis" in window && speechSynthesis.getVoices()) || []).some(v => v.name === o._any && new RegExp(`^${LANG_TAG[l]}([-_]|$)`, "i").test(v.lang || "")));
+    if(owner && !o[owner]) o[owner] = o._any;
+    delete o._any;
+  }
+  if(name) o[lang] = name; else delete o[lang];
+  voice.slots[g] = o; localStorage.setItem(g === "male" ? K.voiceMale : K.voiceFemale, JSON.stringify(o));
+}
 const voice = {
   mode: localStorage.getItem(K.voiceMode) || "essential",          // off | essential | full
   sounds: localStorage.getItem(K.audio) !== "off",
@@ -551,35 +569,10 @@ const voice = {
   lang: localStorage.getItem(K.lang) === "de" ? "de" : "en",
   gender: ["male","female","neutral"].includes(localStorage.getItem(K.gender)) ? localStorage.getItem(K.gender) : "male",
   engine: "device",         // phone voices only: free, offline, no OpenAI credit
-  maleName: localStorage.getItem(K.voiceMale) || "",
-  femaleName: localStorage.getItem(K.voiceFemale) || ""
+  slots: {male:parseSlot(localStorage.getItem(K.voiceMale)), female:parseSlot(localStorage.getItem(K.voiceFemale))}
 };
 let actx = null;
-function unlockAudio(){ try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if(actx.state === "suspended") actx.resume(); }catch{} try{ NV && NV.unlock(); }catch{} }
-/* ---------- German neural voices (free, offline, on-device) ----------
-   Android gives Chrome one German voice, so German Male and Female can't both come from the phone.
-   Zahi Fit can download its own free German male (Thorsten) and female (Kerstin) voices once. */
-let NV = null;
-const loadNV = () => NV ? Promise.resolve(NV) : import("./neural-voice.js").then(m => (NV = m));
-const neuralOn = () => read(K.neural, {}) || {};
-const neuralKey = set => set && set.lang === "de" && (set.gender === "male" || set.gender === "female") ? `de-${set.gender}` : null;
-const neuralReady = set => { const k = neuralKey(set); return !!(k && neuralOn()[k]); };
-function speakNeural(text, token, set, {onready, onend, fallback}){
-  const key = neuralKey(set);
-  loadNV().then(nv => nv.speak(key, text, {speed:(set.rate || voice.rate) / 0.9, isCurrent:() => token === speechToken, onstart:onready, onend:() => { if(token === speechToken && onend) onend(); }}))
-    .catch(async (err) => {
-      console.warn("neural voice failed:", err && (err.stack || err.message || err));
-      try{ if(NV && !(await NV.isReady(key))){ const f = neuralOn(); delete f[key]; write(K.neural, f); } }catch{}
-      if(token === speechToken) fallback();
-    });
-}
-function warmNeural(){
-  const k = neuralKey(voice); if(!k || !neuralReady(voice)) return;
-  loadNV().then(nv => nv.warm(k).then(() => {
-    // pre-generate the short cues so they play instantly during rest
-    const p = SAY.de; [p.ten, p.ten, p.done, p.done, p.good, p.good].forEach(t => nv.synth(k, t, voice.rate / 0.9).catch(() => {}));
-  })).catch(() => {});
-}
+function unlockAudio(){ try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if(actx.state === "suspended") actx.resume(); }catch{} }
 function beep(f, d, v){
   if(!voice.sounds) return; unlockAudio(); if(!actx) return;
   const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
@@ -689,7 +682,7 @@ function pickVoice(set){
   if(!hasLang(set.lang)) return {v:null, exact:false, mid:false};          // let the phone use its own voice for that language
   const vs = voices(set.lang);
   // a voice the person assigned to Male or Female is used as-is (it's a real voice, so no pitch trick)
-  const slot = set.gender === "male" ? (set.maleName ?? voice.maleName) : set.gender === "female" ? (set.femaleName ?? voice.femaleName) : "";
+  const slot = set.gender === "male" || set.gender === "female" ? slotName(set.gender, set.lang) : "";
   if(slot){ const own = vs.find(v => v.name === slot); if(own) return {v:own, exact:true}; }
   if(set.gender === "neutral" && set.name){ const own = vs.find(v => v.name === set.name); if(own) return {v:own, exact:true}; }
   if(set.gender === "neutral"){
@@ -739,61 +732,18 @@ async function speakDevice(text, token, onend, set = voice){
 }
 /* Play something in a voice that isn't saved yet (previews while choosing). */
 function speakWith(text, set, {onend, onready} = {}){
-  hush(); const token = ++speechToken;
-  const dev = () => { onready && onready(); speakDevice(text, token, onend, {lang:set.lang, gender:set.gender, name:set.name || "", rate:voice.rate, maleName:set.maleName ?? voice.maleName, femaleName:set.femaleName ?? voice.femaleName}); };
-  if(neuralReady(set)) speakNeural(text, token, {...set, rate:voice.rate}, {onready, onend, fallback:dev}); else dev();
-}
-/* Card shown for German Male/Female: download (once) or manage the app's own German voice. */
-function neuralCard(set, repaint){
-  const key = neuralKey(set); if(!key) return null;
-  const meta = {"de-male":{name:"Thorsten", g:"male"}, "de-female":{name:"Kerstin", g:"female"}}[key];
-  const box = h("div", {class:"neural-card"});
-  const paint = () => {
-    if(neuralOn()[key]){
-      box.replaceChildren(h("b", null, `✓ German ${meta.g} voice installed (${meta.name})`),
-        h("p", {class:"tiny muted"}, "Free, works offline, and doesn't depend on your phone's voice settings."),
-        h("button", {class:"linkish danger-link", onclick:async () => {
-          if(!(await ask(`Remove the German ${meta.g} voice?`, "It frees about 63 MB. You can download it again any time.", "Remove"))) return;
-          const nv = await loadNV(); await nv.remove(key); const f = neuralOn(); delete f[key]; write(K.neural, f); paint(); repaint && repaint();
-        }}, "Remove this voice"));
-      return;
-    }
-    const bar = h("div", {class:"dl-bar"}, h("i")), status = h("p", {class:"tiny muted"});
-    const btn = h("button", {class:"btn primary block"}, `Download German ${meta.g} voice`);
-    btn.addEventListener("click", async () => {
-      if(navigator.onLine === false){ toast("Connect to Wi-Fi to download the voice."); return; }
-      btn.disabled = true; btn.textContent = "Downloading…"; box.classList.add("busy");
-      try{
-        const nv = await loadNV();
-        await nv.download(key, f => { bar.firstChild.style.width = `${Math.round(f * 100)}%`; status.textContent = `${Math.round(f * 100)}% — keep this screen open`; });
-        status.textContent = "Preparing the voice…"; await nv.warm(key);
-        const f = neuralOn(); f[key] = true; write(K.neural, f);
-        toast(`German ${meta.g} voice ready.`); paint(); repaint && repaint();
-        unlockAudio(); speakWith(SAMPLE.de[meta.g], {lang:"de", gender:meta.g});
-      }catch(err){
-        btn.disabled = false; btn.textContent = `Try again`; box.classList.remove("busy");
-        status.textContent = "The download didn't finish. Check your connection and try again — finished parts are kept.";
-      }
-    });
-    box.replaceChildren(
-      h("b", null, `Get a real German ${meta.g} voice`),
-      h("p", {class:"small"}, `Your phone has only one German voice, so German Male and Female can't both come from the phone. Zahi Fit can download its own free German ${meta.g} voice (${meta.name}). It runs on your phone, works offline and never uses credit.`),
-      h("p", {class:"tiny muted"}, "First download about 90 MB (the voice engine is shared), then about 63 MB per extra voice. Use Wi-Fi."),
-      btn, bar, status);
-  };
-  paint();
-  return box;
+  hush(); const token = ++speechToken; onready && onready();
+  speakDevice(text, token, onend, {lang:set.lang, gender:set.gender, name:set.name || "", rate:voice.rate});
 }
 /* Lists every voice the phone offers for the language (one per accent on most Android phones)
    so the person can hear each one plainly and pick the one that sounds right for Male or Female. */
-function voiceFinder(gender, onPicked){
-  const lang = voice.lang, key = gender === "male" ? "maleName" : "femaleName", store = gender === "male" ? K.voiceMale : K.voiceFemale;
+function voiceFinder(gender, onPicked, lang = voice.lang){
   sheet((card, close) => {
     const vs = voices(lang).filter(v => new RegExp(`^${LANG_TAG[lang]}([-_]|$)`, "i").test(v.lang || ""));
     const list = h("div", {class:"finder-list"});
     const line = lang === "de" ? "Hallo, ich bin dein Coach. Lass uns stark trainieren." : "Hi, I'm your coach. Let's make today a strong one.";
     vs.forEach(v => {
-      const tag = genderOf(v), current = voice[key] === v.name;
+      const tag = genderOf(v), current = slotName(gender, lang) === v.name;
       list.append(h("div", {class:"finder-row" + (current ? " cur" : "")},
         h("button", {class:"icon-btn", "aria-label":`Listen to ${v.name}`, onclick:() => {
           unlockAudio(); hush(); const token = ++speechToken;
@@ -801,8 +751,8 @@ function voiceFinder(gender, onPicked){
         }}, "▶"),
         h("div", {class:"finder-name"}, h("b", null, v.name), h("span", null, [v.lang, tag ? `${tag} voice` : null].filter(Boolean).join(" · "))),
         h("button", {class:"btn sm " + (current ? "idle" : "primary"), onclick:() => {
-          voice[key] = v.name; localStorage.setItem(store, v.name); close(); toast(`${v.name} is now your ${gender} voice.`);
-          unlockAudio(); speakWith(SAMPLE[lang][gender], {lang, gender, name:voice.name}); onPicked && onPicked();
+          setSlot(gender, lang, v.name); close(); toast(`${v.name} is now your ${gender} ${langLabel(lang)} voice.`);
+          unlockAudio(); speakWith(SAMPLE[lang][gender], {lang, gender}); onPicked && onPicked();
         }}, current ? "In use" : "Use")));
     });
     card.append(h("h2", null, `Find a ${gender} voice`),
@@ -870,7 +820,6 @@ function speak(text, {force=false, onend, translate=false, onready, patient=fals
   const token = ++speechToken;
   // Offline, German instructions can't be translated, so the phone reads the English original in an English voice.
   const fallback = () => { if(token !== speechToken) return; onready && onready(); speakDevice(text, token, onend, voice); };
-  if(neuralReady(voice)){ speakNeural(text, token, voice, {onready, onend, fallback}); return; }
   if(voice.engine !== "natural"){ fallback(); return; }
   naturalClip(text, translate, patient).then(blob => {
     if(token !== speechToken) return;
@@ -888,7 +837,7 @@ function speak(text, {force=false, onend, translate=false, onready, patient=fals
     fallback();
   });
 }
-function hush(){ speechToken++; try{ player.pause(); }catch{} try{ speechSynthesis.cancel(); }catch{} try{ NV && NV.stop(); }catch{} }
+function hush(){ speechToken++; try{ player.pause(); }catch{} try{ speechSynthesis.cancel(); }catch{} }
 
 /* ---------- active workout state (same shape as v2.3 for resume) ---------- */
 let state = (() => { const s = read(K.active, null); return s && Array.isArray(s.exercises) ? s : null; })();
@@ -906,7 +855,7 @@ function startWorkout(index, r){
     adaptation:{mode:a.profile.mode, tier:a.profile.tier, label:a.profile.label, message:a.profile.message, targetMinutes:r.time},
     exercises:a.keep.map(ex => ({...ex, skipped:false, rpe:null, sets:Array.from({length:ex.sets}, () => ({w:"", r:"", done:false}))}))
   };
-  persist(); unlockAudio(); warmNeural(); go("workout");
+  persist(); unlockAudio(); go("workout");
 }
 
 /* ---------- rest timer: timestamp based, survives screen-off and reloads ---------- */
@@ -1647,8 +1596,7 @@ function voiceEditor(onApplied, draft = {lang:voice.lang, gender:voice.gender}, 
 function openVoiceSheet(onApplied){
   const close = sheet((card, closeSheet) => {
     card.append(h("h2", null, "Language & voice"),
-      voiceEditor(() => { closeSheet(); onApplied && onApplied(); }),
-      neuralKey(voice) && !neuralReady(voice) ? neuralCard(voice, () => { closeSheet(); onApplied && onApplied(); }) : null);
+      voiceEditor(() => { closeSheet(); onApplied && onApplied(); }));
   });
   return close;
 }
@@ -1673,9 +1621,9 @@ const VOICE_STEPS = {
         "Back on Text-to-speech output, tap Play / Listen to an example to check."]],
       ["4. Use it in Zahi Fit", [
         "Tap Recent apps (|||) › Close all, then open Zahi Fit again.",
-        "Profile › Language & voice › choose your language and Male or Female › Confirm.",
+        "Profile › Language & voice › choose your language and Male or Female.",
         "Tap Find a male (or female) voice on this phone › ▶ to listen › Use on the one that sounds right. Do this once for English and once for Deutsch.",
-        "Tap Test voice. Still the old voice? Restart the phone and repeat this step."]]
+        "Tap Confirm, then Test voice. Still the old voice? Restart the phone and repeat this step."]]
     ],
     short:["Settings › search \"text-to-speech\" › Text-to-speech output › Preferred engine: Speech Recognition and Synthesis from Google.",
       "Tap ⚙ › Install voice data › pick your language (e.g. English (United Kingdom) or Deutsch (Deutschland)) › tap each voice to listen › select the one you want.",
@@ -1691,9 +1639,9 @@ const VOICE_STEPS = {
         "Deutsch: go back › German › download a male voice (e.g. Martin, Yannick) and/or a female voice (e.g. Anna, Helena, Petra)."]],
       ["2. Use it in Zahi Fit", [
         "Swipe Zahi Fit away in the app switcher and open it again, so the new voices appear.",
-        "Profile › Language & voice › choose your language and Male or Female › Confirm.",
+        "Profile › Language & voice › choose your language and Male or Female.",
         "Tap Find a male (or female) voice on this phone › ▶ to listen › Use on the voice you downloaded. Do this once for English and once for Deutsch.",
-        "Tap Test voice."]],
+        "Tap Confirm, then Test voice."]],
       ["No sound?", [
         "Turn off Silent mode (the switch or Action button on the side) and turn the volume up.",
         "Settings › Accessibility › Spoken Content: make sure the voice finished downloading."]]
@@ -2093,29 +2041,29 @@ function renderProfile(m){
     const rate = h("select", {"aria-label":"Voice speed"}, [["0.75","Slower"],["0.9","Normal"],["1.05","Faster"]].map(([v,t]) => h("option", {value:v}, t)));
     rate.value = String([0.75,0.9,1.05].reduce((a,b) => Math.abs(b-voice.rate) < Math.abs(a-voice.rate) ? b : a));
     rate.addEventListener("change", () => { voice.rate = Number(rate.value); localStorage.setItem(K.rate, rate.value); });
-    let phoneVoice = null;
     const vdraft = {lang:voice.lang, gender:voice.gender};
-    if(true){
-      const g = voice.gender, key = g === "male" ? "maleName" : g === "female" ? "femaleName" : "name";
-      const store = g === "male" ? K.voiceMale : g === "female" ? K.voiceFemale : K.voiceName;
+    const phoneVoice = h("div");
+    /* Built from the voice you've just tapped (not only the confirmed one), so it updates instantly. */
+    const paintSlot = () => {
+      const g = vdraft.gender, lang = vdraft.lang, neutral = g === "neutral";
+      const current = neutral ? voice.name : slotName(g, lang);
       const vsel = h("select", {"aria-label":`Voice used for ${genderLabel(g)}`});
       const label = v => { const tag = genderOf(v); return `${v.name}${v.lang ? ` · ${v.lang}` : ""}${tag ? ` · ${tag}` : ""}`; };
-      const fill = () => { const vs = voices(); vsel.replaceChildren(h("option", {value:""}, "Auto (best match)"), ...vs.slice(0,20).map(v => h("option", {value:v.name}, label(v)))); vsel.value = vs.some(v => v.name === voice[key]) ? voice[key] : ""; };
+      const fill = () => { const vs = voices(lang); vsel.replaceChildren(h("option", {value:""}, "Auto (best match)"), ...vs.slice(0,20).map(v => h("option", {value:v.name}, label(v)))); vsel.value = vs.some(v => v.name === current) ? current : ""; };
       fill(); if("speechSynthesis" in window) speechSynthesis.onvoiceschanged = fill;
       vsel.addEventListener("change", () => {
-        voice[key] = vsel.value; localStorage.setItem(store, vsel.value); paintTest();
-        unlockAudio(); speakWith(SAMPLE[voice.lang][g], {lang:voice.lang, gender:g, name:voice.name});
+        if(neutral){ voice.name = vsel.value; localStorage.setItem(K.voiceName, vsel.value); } else setSlot(g, lang, vsel.value);
+        paintTest(); unlockAudio(); speakWith(SAMPLE[lang][g], {lang, gender:g, name:neutral ? vsel.value : ""});
       });
-      const vsAll = voices(voice.lang), hasReal = vsAll.some(v => genderOf(v) === g) || !!voice[key] || neuralReady(voice);
-      const hideSel = voice.lang === "de" && g !== "neutral" && neuralReady(voice);   // German Male/Female use the app's own voice
-      phoneVoice = h("div", null, hideSel ? null : h("div", {class:"setting"}, h("span", null, `Voice used for ${genderLabel(g)}`), vsel),
-        voice.lang === "de" && g !== "neutral" ? neuralCard(voice, paintVoicePanel) :
-        g !== "neutral" ? h("div", {class:"finder-cta" + (hasReal ? "" : " warn")},
+      const vsAll = voices(lang), assigned = !neutral && vsAll.some(v => v.name === slotName(g, lang));
+      const hasReal = vsAll.some(v => genderOf(v) === g) || assigned;
+      phoneVoice.replaceChildren(h("div", {class:"setting"}, h("span", null, `Voice used for ${genderLabel(g)}`), vsel),
+        !neutral ? h("div", {class:"finder-cta" + (hasReal ? "" : " warn")},
           !hasReal ? h("p", {class:"small"}, g === "male"
             ? "Your phone hasn't given Zahi Fit a male voice yet, so Male is a deeper version of a female voice. Find a real male voice on your phone:"
             : "Find a real female voice on your phone:") : null,
-          h("button", {class:"btn block " + (hasReal ? "" : "primary"), onclick:() => voiceFinder(g, paintVoicePanel)}, `Find a ${g} voice on this phone`)) : null);
-    }
+          h("button", {class:"btn block " + (hasReal ? "" : "primary"), onclick:() => voiceFinder(g, () => { paintSlot(); paintTest(); }, lang)}, `Find a ${g} voice on this phone`)) : null);
+    };
     const testBtn = h("button", {class:"btn block section"});
     const pending = () => vdraft.lang !== voice.lang || vdraft.gender !== voice.gender;
     const paintTest = () => pending() ? actionState(testBtn, true, "Test selected voice")
@@ -2127,10 +2075,10 @@ function renderProfile(m){
       speakWith(SAY[vdraft.lang].test, {...vdraft, name:pending() ? "" : voice.name}, {onready:() => { testBtn.textContent = "Playing…"; }, onend:finish});
       setTimeout(() => { if(/Playing/.test(testBtn.textContent)) finish(); }, 12000);
     });
-    paintTest();
+    paintTest(); paintSlot();
     rate.addEventListener("change", paintTest);
     vpanel.replaceChildren(h("h2", null, "Language & voice"),
-      voiceEditor(paintVoicePanel, vdraft, () => paintTest()),
+      voiceEditor(paintVoicePanel, vdraft, () => { paintTest(); paintSlot(); }),
       h("div", {class:"section"}),
       h("div", {class:"setting"}, h("span", null, "During workouts"), mode),
       h("div", {class:"setting"}, h("span", null, "Rest timer sounds"), snd),
