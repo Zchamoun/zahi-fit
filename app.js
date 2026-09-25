@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.9.5";
+const VERSION = "4.9.6";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -13,7 +13,7 @@ const K = {
   rate:"zahiFitVoiceRateV312", voiceName:"zahiFitVoiceNameV313", voiceMale:"zahiFitVoiceMaleV494", voiceFemale:"zahiFitVoiceFemaleV494",
   chat:"zahiFitPTConversationV26", onboarded:"zahiFitOnboardedV4",
   lang:"zahiFitVoiceLangV41", gender:"zahiFitVoiceGenderV41", engine:"zahiFitVoiceEngineV41",
-  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44", videoPick:"zahiFitVideoPickV47"
+  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44", videoPick:"zahiFitVideoPickV47", neural:"zahiFitNeuralV496"
 };
 
 /* ---------- tiny helpers ---------- */
@@ -50,7 +50,7 @@ const HEIGHT = {Strength:5, Power:4, Hypertrophy:4, Conditioning:3, Durability:3
    Each person has their own history, plan, profile, voice settings, coach chat and in-progress workout.
    The first person keeps the original storage keys, so existing data needs no migration. */
 const USERS_KEY = "zahiFitUsersV45";
-const DEVICE_KEYS = ["installHide", "videoPick"];                 // shared by everyone on this phone
+const DEVICE_KEYS = ["installHide", "videoPick", "neural"];                 // shared by everyone on this phone
 const BASE_K = {...K};
 const nsKey = (id, base) => id === "main" ? base : `zf.${id}.${base}`;
 function loadUsers(){
@@ -555,7 +555,31 @@ const voice = {
   femaleName: localStorage.getItem(K.voiceFemale) || ""
 };
 let actx = null;
-function unlockAudio(){ try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if(actx.state === "suspended") actx.resume(); }catch{} }
+function unlockAudio(){ try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if(actx.state === "suspended") actx.resume(); }catch{} try{ NV && NV.unlock(); }catch{} }
+/* ---------- German neural voices (free, offline, on-device) ----------
+   Android gives Chrome one German voice, so German Male and Female can't both come from the phone.
+   Zahi Fit can download its own free German male (Thorsten) and female (Kerstin) voices once. */
+let NV = null;
+const loadNV = () => NV ? Promise.resolve(NV) : import("./neural-voice.js").then(m => (NV = m));
+const neuralOn = () => read(K.neural, {}) || {};
+const neuralKey = set => set && set.lang === "de" && (set.gender === "male" || set.gender === "female") ? `de-${set.gender}` : null;
+const neuralReady = set => { const k = neuralKey(set); return !!(k && neuralOn()[k]); };
+function speakNeural(text, token, set, {onready, onend, fallback}){
+  const key = neuralKey(set);
+  loadNV().then(nv => nv.speak(key, text, {speed:(set.rate || voice.rate) / 0.9, isCurrent:() => token === speechToken, onstart:onready, onend:() => { if(token === speechToken && onend) onend(); }}))
+    .catch(async (err) => {
+      console.warn("neural voice failed:", err && (err.stack || err.message || err));
+      try{ if(NV && !(await NV.isReady(key))){ const f = neuralOn(); delete f[key]; write(K.neural, f); } }catch{}
+      if(token === speechToken) fallback();
+    });
+}
+function warmNeural(){
+  const k = neuralKey(voice); if(!k || !neuralReady(voice)) return;
+  loadNV().then(nv => nv.warm(k).then(() => {
+    // pre-generate the short cues so they play instantly during rest
+    const p = SAY.de; [p.ten, p.ten, p.done, p.done, p.good, p.good].forEach(t => nv.synth(k, t, voice.rate / 0.9).catch(() => {}));
+  })).catch(() => {});
+}
 function beep(f, d, v){
   if(!voice.sounds) return; unlockAudio(); if(!actx) return;
   const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
@@ -642,8 +666,8 @@ const genderLabel = g => ({male:"Male", female:"Female", neutral:"Neutral"})[g];
 const LANG_TAG = {en:"en", de:"de"};
 
 /* -- device voice: pick by language + gender, prefer network/neural voices, speak sentence by sentence -- */
-const FEMALE = /female|woman|frau|anna|helena|hedda|katja|petra|marlene|vicki|zira|samantha|karen|moira|tessa|serena|susan|aria|jenny|libby|sonia|emma|olivia|amy|salli|joanna|kendra|kimberly|ivy|google uk english female|de-de-x-(dea|deb|nfh)/i;
-const MALE = /\bmale\b|\bman\b|mann|markus|stefan|hans|yannick|conrad|killian|daniel|david|george|mark|guy|ryan|thomas|alex|fred|oliver|brian|matthew|joey|justin|google uk english male|de-de-x-(deg|deh)/i;
+const FEMALE = /female|woman|frau|nicky|ava|zoe|allison|catherine|kate|martha|shelley|anna|helena|hedda|katja|petra|marlene|vicki|zira|samantha|karen|moira|tessa|serena|susan|aria|jenny|libby|sonia|emma|olivia|amy|salli|joanna|kendra|kimberly|ivy|google uk english female|de-de-x-(dea|deb|nfh)/i;
+const MALE = /\bmale\b|\bman\b|mann|aaron|evan|nathan|arthur|gordon|martin|rishi|markus|stefan|hans|yannick|conrad|killian|daniel|david|george|mark|guy|ryan|thomas|alex|fred|oliver|brian|matthew|joey|justin|google uk english male|de-de-x-(deg|deh)/i;
 function voices(lang = voice.lang){
   if(!("speechSynthesis" in window)) return [];
   const all = speechSynthesis.getVoices() || [];
@@ -715,8 +739,50 @@ async function speakDevice(text, token, onend, set = voice){
 }
 /* Play something in a voice that isn't saved yet (previews while choosing). */
 function speakWith(text, set, {onend, onready} = {}){
-  hush(); const token = ++speechToken; onready && onready();
-  speakDevice(text, token, onend, {lang:set.lang, gender:set.gender, name:set.name || "", rate:voice.rate, maleName:set.maleName ?? voice.maleName, femaleName:set.femaleName ?? voice.femaleName});
+  hush(); const token = ++speechToken;
+  const dev = () => { onready && onready(); speakDevice(text, token, onend, {lang:set.lang, gender:set.gender, name:set.name || "", rate:voice.rate, maleName:set.maleName ?? voice.maleName, femaleName:set.femaleName ?? voice.femaleName}); };
+  if(neuralReady(set)) speakNeural(text, token, {...set, rate:voice.rate}, {onready, onend, fallback:dev}); else dev();
+}
+/* Card shown for German Male/Female: download (once) or manage the app's own German voice. */
+function neuralCard(set, repaint){
+  const key = neuralKey(set); if(!key) return null;
+  const meta = {"de-male":{name:"Thorsten", g:"male"}, "de-female":{name:"Kerstin", g:"female"}}[key];
+  const box = h("div", {class:"neural-card"});
+  const paint = () => {
+    if(neuralOn()[key]){
+      box.replaceChildren(h("b", null, `✓ German ${meta.g} voice installed (${meta.name})`),
+        h("p", {class:"tiny muted"}, "Free, works offline, and doesn't depend on your phone's voice settings."),
+        h("button", {class:"linkish danger-link", onclick:async () => {
+          if(!(await ask(`Remove the German ${meta.g} voice?`, "It frees about 63 MB. You can download it again any time.", "Remove"))) return;
+          const nv = await loadNV(); await nv.remove(key); const f = neuralOn(); delete f[key]; write(K.neural, f); paint(); repaint && repaint();
+        }}, "Remove this voice"));
+      return;
+    }
+    const bar = h("div", {class:"dl-bar"}, h("i")), status = h("p", {class:"tiny muted"});
+    const btn = h("button", {class:"btn primary block"}, `Download German ${meta.g} voice`);
+    btn.addEventListener("click", async () => {
+      if(navigator.onLine === false){ toast("Connect to Wi-Fi to download the voice."); return; }
+      btn.disabled = true; btn.textContent = "Downloading…"; box.classList.add("busy");
+      try{
+        const nv = await loadNV();
+        await nv.download(key, f => { bar.firstChild.style.width = `${Math.round(f * 100)}%`; status.textContent = `${Math.round(f * 100)}% — keep this screen open`; });
+        status.textContent = "Preparing the voice…"; await nv.warm(key);
+        const f = neuralOn(); f[key] = true; write(K.neural, f);
+        toast(`German ${meta.g} voice ready.`); paint(); repaint && repaint();
+        unlockAudio(); speakWith(SAMPLE.de[meta.g], {lang:"de", gender:meta.g});
+      }catch(err){
+        btn.disabled = false; btn.textContent = `Try again`; box.classList.remove("busy");
+        status.textContent = "The download didn't finish. Check your connection and try again — finished parts are kept.";
+      }
+    });
+    box.replaceChildren(
+      h("b", null, `Get a real German ${meta.g} voice`),
+      h("p", {class:"small"}, `Your phone has only one German voice, so German Male and Female can't both come from the phone. Zahi Fit can download its own free German ${meta.g} voice (${meta.name}). It runs on your phone, works offline and never uses credit.`),
+      h("p", {class:"tiny muted"}, "First download about 90 MB (the voice engine is shared), then about 63 MB per extra voice. Use Wi-Fi."),
+      btn, bar, status);
+  };
+  paint();
+  return box;
 }
 /* Lists every voice the phone offers for the language (one per accent on most Android phones)
    so the person can hear each one plainly and pick the one that sounds right for Male or Female. */
@@ -744,12 +810,9 @@ function voiceFinder(gender, onPicked){
       vs.length ? list : h("p", {class:"small"}, "No voices found for this language yet. Install them first (below)."),
       h("div", {class:"finder-help"},
         h("b", null, `None sound ${gender}?`),
-        h("p", {class:"small"}, `Your phone only has ${gender === "male" ? "female" : "male"} voices for this language so far. Give one accent a ${gender} voice (free, 2 minutes):`),
-        h("ol", {class:"howto"},
-          h("li", null, "Phone Settings › search \"Text-to-speech\" › Speech Services by Google › ⚙ › Install voice data."),
-          h("li", null, lang === "de" ? "Tap Deutsch (Deutschland) › listen to each voice › select a " + (gender === "male" ? "male" : "female") + " one."
-            : "Tap English (United Kingdom) (or another English accent) › listen to each voice › select a " + (gender === "male" ? "male" : "female") + " one."),
-          h("li", null, "Fully close and reopen Zahi Fit, come back here and tap Use on that accent."))));
+        h("p", {class:"small"}, `Add a ${gender} voice on your ${IS_APPLE ? "iPhone" : "phone"} (free, a few minutes):`),
+        h("ol", {class:"howto"}, VOICE_STEPS[IS_APPLE ? "ios" : "android"].short.map(x => h("li", null, x))),
+        h("button", {class:"linkish", onclick:phoneSetupGuide}, "Full step-by-step guide (Android and iPhone)")));
   });
 }
 const SAMPLE = {en:{male:"This is the male voice. Let's make today a strong one.", female:"This is the female voice. Let's make today a strong one.", neutral:"This is the neutral voice."},
@@ -807,6 +870,7 @@ function speak(text, {force=false, onend, translate=false, onready, patient=fals
   const token = ++speechToken;
   // Offline, German instructions can't be translated, so the phone reads the English original in an English voice.
   const fallback = () => { if(token !== speechToken) return; onready && onready(); speakDevice(text, token, onend, voice); };
+  if(neuralReady(voice)){ speakNeural(text, token, voice, {onready, onend, fallback}); return; }
   if(voice.engine !== "natural"){ fallback(); return; }
   naturalClip(text, translate, patient).then(blob => {
     if(token !== speechToken) return;
@@ -824,7 +888,7 @@ function speak(text, {force=false, onend, translate=false, onready, patient=fals
     fallback();
   });
 }
-function hush(){ speechToken++; try{ player.pause(); }catch{} try{ speechSynthesis.cancel(); }catch{} }
+function hush(){ speechToken++; try{ player.pause(); }catch{} try{ speechSynthesis.cancel(); }catch{} try{ NV && NV.stop(); }catch{} }
 
 /* ---------- active workout state (same shape as v2.3 for resume) ---------- */
 let state = (() => { const s = read(K.active, null); return s && Array.isArray(s.exercises) ? s : null; })();
@@ -842,7 +906,7 @@ function startWorkout(index, r){
     adaptation:{mode:a.profile.mode, tier:a.profile.tier, label:a.profile.label, message:a.profile.message, targetMinutes:r.time},
     exercises:a.keep.map(ex => ({...ex, skipped:false, rpe:null, sets:Array.from({length:ex.sets}, () => ({w:"", r:"", done:false}))}))
   };
-  persist(); unlockAudio(); go("workout");
+  persist(); unlockAudio(); warmNeural(); go("workout");
 }
 
 /* ---------- rest timer: timestamp based, survives screen-off and reloads ---------- */
@@ -1583,37 +1647,76 @@ function voiceEditor(onApplied, draft = {lang:voice.lang, gender:voice.gender}, 
 function openVoiceSheet(onApplied){
   const close = sheet((card, closeSheet) => {
     card.append(h("h2", null, "Language & voice"),
-      voiceEditor(() => { closeSheet(); onApplied && onApplied(); }));
+      voiceEditor(() => { closeSheet(); onApplied && onApplied(); }),
+      neuralKey(voice) && !neuralReady(voice) ? neuralCard(voice, () => { closeSheet(); onApplied && onApplied(); }) : null);
   });
   return close;
 }
 
+const IS_APPLE = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+/* Step-by-step voice setup for each kind of phone. Short version appears in "Find a voice". */
+const VOICE_STEPS = {
+  android:{
+    title:"Android (Samsung, Google Pixel and others)",
+    parts:[
+      ["1. Install Google's voice engine", [
+        "Open the Play Store and search \"Speech Recognition and Synthesis from Google\" (also called Speech Services by Google).",
+        "Tap Install, or Update if you see it. If it only shows Uninstall, it's ready — don't tap it."]],
+      ["2. Make it your phone's voice engine", [
+        "Open Settings › tap Search › type \"text-to-speech\" › tap Text-to-speech output. (Samsung: usually under General management.)",
+        "Tap Preferred engine › choose Speech Recognition and Synthesis from Google (Speech Services by Google). Tap OK if asked."]],
+      ["3. Pick a male or female voice for each language", [
+        "On Text-to-speech output, tap the ⚙ gear next to the Google engine › Install voice data.",
+        "English: tap English (United Kingdom) — download it if there's a ⬇ icon — then tap each voice (Voice I, II, III…) to hear it and select the one you want.",
+        "Deutsch: go back, tap Deutsch (Deutschland) and choose a voice the same way.",
+        "Tip: for both a male and a female English voice, set English (United Kingdom) to one and English (United States) to the other.",
+        "Back on Text-to-speech output, tap Play / Listen to an example to check."]],
+      ["4. Use it in Zahi Fit", [
+        "Tap Recent apps (|||) › Close all, then open Zahi Fit again.",
+        "Profile › Language & voice › choose your language and Male or Female › Confirm.",
+        "Tap Find a male (or female) voice on this phone › ▶ to listen › Use on the one that sounds right. Do this once for English and once for Deutsch.",
+        "Tap Test voice. Still the old voice? Restart the phone and repeat this step."]]
+    ],
+    short:["Settings › search \"text-to-speech\" › Text-to-speech output › Preferred engine: Speech Recognition and Synthesis from Google.",
+      "Tap ⚙ › Install voice data › pick your language (e.g. English (United Kingdom) or Deutsch (Deutschland)) › tap each voice to listen › select the one you want.",
+      "Recent apps › Close all › reopen Zahi Fit › come back here and tap Use on that voice."]
+  },
+  ios:{
+    title:"iPhone and iPad",
+    parts:[
+      ["1. Download good voices", [
+        "Open Settings › Accessibility › Spoken Content › Voices.",
+        "Tap English › pick a voice: male options include Daniel (UK), Arthur (UK), Aaron, Evan or Nathan (US); female options include Serena or Kate (UK), Samantha, Ava or Zoe (US).",
+        "Tap the ⬇ download icon next to the voice (choose the Enhanced or Premium version if offered — it sounds much more natural).",
+        "Deutsch: go back › German › download a male voice (e.g. Martin, Yannick) and/or a female voice (e.g. Anna, Helena, Petra)."]],
+      ["2. Use it in Zahi Fit", [
+        "Swipe Zahi Fit away in the app switcher and open it again, so the new voices appear.",
+        "Profile › Language & voice › choose your language and Male or Female › Confirm.",
+        "Tap Find a male (or female) voice on this phone › ▶ to listen › Use on the voice you downloaded. Do this once for English and once for Deutsch.",
+        "Tap Test voice."]],
+      ["No sound?", [
+        "Turn off Silent mode (the switch or Action button on the side) and turn the volume up.",
+        "Settings › Accessibility › Spoken Content: make sure the voice finished downloading."]]
+    ],
+    short:["Settings › Accessibility › Spoken Content › Voices › pick your language (English or German).",
+      "Tap ⬇ to download a voice you like (Enhanced / Premium sounds best) — e.g. Daniel or Arthur (male, UK), Samantha (female, US), Martin (male, German), Anna (female, German).",
+      "Swipe Zahi Fit away, reopen it, come back here and tap Use on that voice."]
+  }
+};
 function phoneSetupGuide(){
-  sheet((card) => {
-    const ol = (...items) => h("ol", {class:"howto"}, items.map(x => h("li", null, x)));
-    card.append(h("h2", null, "Set up your phone's voices"),
-      h("p", {class:"small muted"}, "Do this once on Wi-Fi. Then \"Phone voice\" works offline in every language you install, with the male or female voice you pick."),
-      h("h3", {class:"section"}, "1. Choose the Google voice engine"),
-      ol("Open your phone's Settings.", "Search for \"Text-to-speech\" (Samsung: General management › Text-to-speech output).",
-         "Preferred engine: choose Speech Services by Google. If it isn't there, install or update it from the Play Store."),
-      h("h3", {class:"section"}, "2. Download the languages"),
-      ol("Tap the gear icon next to Speech Services by Google › Install voice data.",
-         "Download English (UK or United States) and Deutsch (Deutschland), plus any other language you want.",
-         "Downloaded voices work without internet."),
-      h("h3", {class:"section"}, "3. Pick male or female for each language"),
-      ol("In Install voice data, tap a language you downloaded.",
-         "Tap each voice (Voice I, II, III…) to hear it, and select the one you want.",
-         "Your phone uses that voice for the language, so repeat for English and Deutsch."),
-      h("h3", {class:"section"}, "Want a truly male (or female) voice?"),
-      ol("Chrome often shows one voice per language or accent. Give one accent a male voice, e.g. English (United Kingdom):",
-         "Speech Services by Google › gear › Install voice data › English (United Kingdom) › tap each voice to listen and select a male one.",
-         "Reopen Zahi Fit › Profile › Language & voice › choose Male › Confirm › Voice used for Male: pick the English (United Kingdom) voice.",
-         "Do the same with another accent (e.g. English (United States)) set to a female voice for Female."),
-      h("h3", {class:"section"}, "4. Use it in Zahi Fit"),
-      ol("Fully close Chrome and Zahi Fit (recent apps › swipe away), then reopen so the new voices appear.",
-         "Profile › Language & voice: tap Male, Female or Neutral to hear each, then tap Confirm.",
-         "Tap Test voice. If you hear the wrong voice, choose it in the Phone voice list."),
-      h("p", {class:"small muted section"}, "Tip: after installing new voices, fully close and reopen Zahi Fit, then pick Male, Female or Neutral in Profile › Language & voice."));
+  sheet(card => {
+    let os = IS_APPLE ? "ios" : "android";
+    const body = h("div");
+    const tabs = h("div", {class:"pick guide-tabs", role:"tablist"});
+    const paint = () => {
+      tabs.replaceChildren(...[["android","Android"],["ios","iPhone"]].map(([k,t]) =>
+        h("button", {role:"tab", "aria-selected":String(os === k), "aria-pressed":String(os === k), onclick:() => { os = k; paint(); }}, t)));
+      const g = VOICE_STEPS[os];
+      body.replaceChildren(h("p", {class:"small muted"}, `${g.title}. Do this once on Wi-Fi — the voices then work offline and are free.`),
+        ...g.parts.flatMap(([head, items]) => [h("h3", {class:"section"}, head), h("ol", {class:"howto"}, items.map(x => h("li", null, x)))]));
+    };
+    card.append(h("h2", null, "Set up your phone's voices"), tabs, body);
+    paint();
   });
 }
 
@@ -2003,8 +2106,10 @@ function renderProfile(m){
         voice[key] = vsel.value; localStorage.setItem(store, vsel.value); paintTest();
         unlockAudio(); speakWith(SAMPLE[voice.lang][g], {lang:voice.lang, gender:g, name:voice.name});
       });
-      const vsAll = voices(voice.lang), hasReal = vsAll.some(v => genderOf(v) === g) || !!voice[key];
-      phoneVoice = h("div", null, h("div", {class:"setting"}, h("span", null, `Voice used for ${genderLabel(g)}`), vsel),
+      const vsAll = voices(voice.lang), hasReal = vsAll.some(v => genderOf(v) === g) || !!voice[key] || neuralReady(voice);
+      const hideSel = voice.lang === "de" && g !== "neutral" && neuralReady(voice);   // German Male/Female use the app's own voice
+      phoneVoice = h("div", null, hideSel ? null : h("div", {class:"setting"}, h("span", null, `Voice used for ${genderLabel(g)}`), vsel),
+        voice.lang === "de" && g !== "neutral" ? neuralCard(voice, paintVoicePanel) :
         g !== "neutral" ? h("div", {class:"finder-cta" + (hasReal ? "" : " warn")},
           !hasReal ? h("p", {class:"small"}, g === "male"
             ? "Your phone hasn't given Zahi Fit a male voice yet, so Male is a deeper version of a female voice. Find a real male voice on your phone:"
