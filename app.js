@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.7.0";
+const VERSION = "4.8.0";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -121,7 +121,7 @@ function loadPlan(){
   if(p && p.days >= 2 && p.days <= 6 && GOALS[p.primary]) return {
     days:Number(p.days), primary:p.primary,
     secondary:Array.isArray(p.secondary) ? p.secondary.filter(x => GOALS[x] && x !== p.primary).slice(0,3) : [],
-    duration:[60,75,90].includes(Number(p.duration)) ? Number(p.duration) : 75,
+    duration:[45,60,75,90].includes(Number(p.duration)) ? Number(p.duration) : 75,
     equipment:EQUIPMENT[p.equipment] ? p.equipment : "gym"
   };
   return {days:4, primary:"fat_loss", secondary:["muscle"], duration:75, equipment:"gym"};
@@ -183,18 +183,24 @@ const SECONDARY_SLOT = {                       // what each secondary goal adds 
   mobility: f => f === "lower" || f === "full" ? ["flexLower","flex"] : ["mobUpper","mob"]
 };
 
-function buildWeek(p = plan){
+function buildWeek(p = plan, person = personal){
   const goal = p.primary, eq = POOLS[p.equipment] ? p.equipment : "gym", pools = POOLS[eq];
+  const age = person ? person.ageBracket : null, exp = person ? person.experience : "some", focus = focusOf(person);
+  const older = age === "50-59" || age === "60+";
+  // Names this person should not get (sore areas), and name swaps for age / experience.
+  const avoid = new Set((person ? person.areas : []).flatMap(a => AVOID_BY_AREA[a] || []));
+  const swaps = {...(EXPERIENCE_SWAPS[exp] || {}), ...(AGE_SWAPS[age] || {})};
+  const allowed = new Set([...Object.values(pools).flat(), ...MOB_LOWER, ...FLEX_LOWER, ...FLEX_UPPER, "Thoracic Rotation", "Child's Pose Lat Stretch"]);
   const splitKey = ["strength","muscle"].includes(goal) ? "heavy" : goal === "mobility" ? "mobility" : "engine";
   const split = SPLITS[splitKey][p.days];
   const seen = {};
-  return split.map((focus, idx) => {
-    const rot = seen[focus] = (seen[focus] ?? -1) + 1;   // 0 for the first "lower", 1 for the second…
-    let recipe = RECIPES[focus].map(r => r.slice());
+  return split.map((sfocus, idx) => {
+    const rot = seen[sfocus] = (seen[sfocus] ?? -1) + 1;   // 0 for the first "lower", 1 for the second…
+    let recipe = RECIPES[sfocus].map(r => r.slice());
     // secondary goals
     let extraMainSet = 0, condLonger = false;
     p.secondary.forEach(g => {
-      const add = SECONDARY_SLOT[g] && SECONDARY_SLOT[g](focus);
+      const add = SECONDARY_SLOT[g] && SECONDARY_SLOT[g](sfocus);
       if(add === "mainSet") extraMainSet = 1;
       else if(add === "condLonger") condLonger = true;
       else if(Array.isArray(add)){
@@ -202,71 +208,105 @@ function buildWeek(p = plan){
         recipe.splice(Math.max(0, at), 0, add);
       }
     });
-    if(goal === "mobility" && focus !== "mobility") recipe.splice(1, 0, ["mobLower","mob"], ["flexUpper","flex"]);
+    if(goal === "mobility" && sfocus !== "mobility") recipe.splice(1, 0, ["mobLower","mob"], ["flexUpper","flex"]);
     if(goal === "athletic" && !recipe.some(r => r[1] === "power")) recipe.splice(2, 0, ["power","power"]);
+    // focus emphasis (auto = by sex); short sessions keep only the first extra slot
+    const extras = ((FOCUS_SLOTS[focus] || {})[sfocus] || []).slice(0, p.duration <= 60 ? 1 : 2);
+    extras.forEach(add => { const at = add[1] === "mob" ? 1 : recipe.findIndex(r => r[1] === "core"); recipe.splice(Math.max(0, at), 0, add); });
+    // age: longer warm-up from 50, balance/bone-loading work from 60
+    if(older && p.duration >= 60 && sfocus !== "mobility") recipe.splice(1, 0, [sfocus === "upper" ? "mobUpper" : "mobLower", "mob"]);
+    if(age === "60+" && ["lower","full"].includes(sfocus) && eq) recipe.splice(Math.max(0, recipe.findIndex(r => r[1] === "cond")), 0, ["durability","balance"]);
     // session length
-    if(p.duration === 60){
-      const drop = (role) => { const i = recipe.map(r => r[1]).lastIndexOf(role); if(i >= 0) recipe.splice(i, 1); };
+    const drop = (role) => { const i = recipe.map(r => r[1]).lastIndexOf(role); if(i >= 0) recipe.splice(i, 1); };
+    if(p.duration === 45){
+      // express: one mobility, main lift(s), one accessory, core, short conditioning, one stretch
+      const keepOne = role => { while(recipe.filter(r => r[1] === role).length > 1) drop(role); };
+      ["mob","acc","flex","core","balance"].forEach(keepOne); drop("finisher");
+      if(goal !== "athletic") drop("power");
+      if(!["strength","muscle"].includes(goal)) drop("main2");
+    }else if(p.duration === 60){
       drop("mob"); drop("acc"); if(recipe.filter(r => r[1] === "flex").length > 1) drop("flex");
     }else if(p.duration === 90){
-      const extra = {lower:["ham","acc"], upper:["pullV","acc"], full:["glute","acc"], engine:["lunge","acc"], mobility:["mobUpper","mob"]}[focus];
+      const extra = {lower:["ham","acc"], upper:["pullV","acc"], full:["glute","acc"], engine:["lunge","acc"], mobility:["mobUpper","mob"]}[sfocus];
       recipe.splice(Math.max(0, recipe.findIndex(r => r[1] === "core")), 0, extra);
-      recipe.push([focus === "upper" ? "flexUpper" : "flexLower", "flex"]);
+      recipe.push([sfocus === "upper" ? "flexUpper" : "flexLower", "flex"]);
+    }
+    // keep sessions realistic for the time: trim the lowest-priority extras first
+    const CAP = {45:6, 60:8, 75:10, 90:12}[p.duration] || 10;
+    const trimOrder = ["finisher","acc","mob","flex","balance","core","power"];
+    for(const role of trimOrder){
+      const min = role === "acc" ? 1 : role === "power" && goal === "athletic" ? 1 : ["mob","flex","core"].includes(role) ? 1 : 0;
+      while(recipe.length > CAP && recipe.filter(r => r[1] === role).length > min) drop(role);
     }
     // pick exercises: rotate within each pool, never repeat within a session
     const used = new Set(), exercises = [];
+    const ok = n => n && !used.has(n) && !avoid.has(n) && allowed.has(n) && findEx(n);
     recipe.forEach(([poolKey, role], k) => {
       const keys = poolKey.split("|"), key = keys[(rot + idx) % keys.length];
       const pool = pools[key] || [];
-      if(!pool.length) return;
       let pick = null;
-      for(let t = 0; t < pool.length; t++){ const n = pool[(rot + k + t) % pool.length]; if(!used.has(n)){ pick = n; break; } }
+      for(let t = 0; t < pool.length && !pick; t++){
+        const n0 = pool[(rot + k + t) % pool.length], n = swaps[n0] || n0;
+        if(ok(n)) pick = n; else if(ok(n0) && !swaps[n0]) pick = n0;
+      }
+      if(!pick) pick = (SAFE_BY_KEY[key] || []).find(ok) || null;       // gentler option when everything is excluded
+      if(!pick && role === "balance") pick = ["Step-Down Control","Single-Leg Romanian Deadlift","Side Plank"].find(ok) || null;
       if(!pick) return;
-      const src = findEx(pick); if(!src) return;
       used.add(pick);
-      exercises.push(prescribe(clone(src), role, goal, eq, {extraMainSet, condLonger}));
+      exercises.push(prescribe(clone(findEx(pick)), role === "balance" ? "core" : role, goal, eq, {extraMainSet, condLonger, age, exp, duration:p.duration}));
     });
     const letter = String.fromCharCode(65 + idx);
     const secondary = p.secondary.map(x => GOALS[x]).join(", ");
     return {
-      name:`${letter} — ${TITLES[focus][goal]}`,
+      name:`${letter} — ${TITLES[sfocus][goal]}`,
       duration:p.duration,
-      focus:`${FOCUS_TEXT[focus]} · ${GOALS[goal]}${secondary ? ` + ${secondary}` : ""} · ${EQUIPMENT[eq]}`,
+      focus:`${FOCUS_TEXT[sfocus]} · ${GOALS[goal]}${secondary ? ` + ${secondary}` : ""} · ${EQUIPMENT[eq]}`,
       exercises
     };
   });
 }
-function prescribe(x, role, goal, eq, {extraMainSet, condLonger}){
+function prescribe(x, role, goal, eq, {extraMainSet, condLonger, age, exp, duration}){
   const rx = RX[goal][role === "finisher" ? "cond" : role];
   const perSide = /\/(leg|side)/.exec(x.reps);
   const hold = typeof HOLD_EXERCISES !== "undefined" && HOLD_EXERCISES.has(x.n);
   if(role === "mob" || role === "flex") return x;                       // keep mobility & stretching as written
   if(role === "easy"){ x.sets = 1; x.reps = STEADY_MIN.mobility; return x; }
   if(x.block === "Conditioning"){
-    if(/Steady|Walk/.test(x.n)){ x.sets = 1; x.reps = STEADY_MIN[goal] || (condLonger ? "25–30 min" : "20–25 min"); if(condLonger && goal !== "endurance") x.reps = "25–35 min"; return x; }
+    if(/Steady|Walk/.test(x.n)){ x.sets = 1; x.reps = STEADY_MIN[goal] || (condLonger ? "25–30 min" : "20–25 min"); if(condLonger && goal !== "endurance") x.reps = "25–35 min"; if(duration === 45) x.reps = "12–15 min"; return x; }
     if(role === "circuit"){ x.sets = rx[0] + (condLonger ? 1 : 0); x.rest = rx[2]; return x; }
     x.sets = role === "finisher" ? 4 : rx[0] + (condLonger ? 2 : 0);
+    if(duration === 45) x.sets = Math.min(x.sets, 5);
     return x;
   }
   if(!rx) return x;
-  x.sets = rx[0] + ((role === "main" || role === "main2") ? extraMainSet : 0);
+  const isMain = role === "main" || role === "main2";
+  x.sets = rx[0] + (isMain ? extraMainSet : 0);
+  if(exp === "new" && ["main","main2","acc"].includes(role)) x.sets = Math.max(2, x.sets - 1);   // beginners: less volume
+  if(exp === "experienced" && isMain) x.sets += 1;                                                  // trained: more work on key lifts
   x.rest = x.bw ? Math.min(rx[2], 90) : rx[2];          // no heavy loads, so shorter rests
+  if(age === "60+" && !x.bw) x.rest += 15;              // a little more recovery between sets
   if(rx[1] && !hold){
     let reps = x.bw ? (role === "power" ? "8–10" : (RX_BW[goal][role] || RX_BW[goal].acc)) : rx[1];
     // Safety caps: technical barbell lifts and hard bodyweight moves don't go to very high reps.
     const cap = REP_CAPS[x.n], top = str => Math.max(...(String(str).match(/\d+/g) || [0]).map(Number));
     if(cap && top(reps) > top(cap)) reps = cap;
+    if((exp === "new" || age === "60+") && isMain && !x.bw && top(reps) < 6) reps = exp === "new" ? "8" : "6";   // no very heavy low-rep sets
     x.reps = perSide ? reps.replace(/^([^(]+?)(\s*\(.*\))?$/, (_, r, t) => `${r}/${perSide[1]}${t || ""}`) : reps;
   }
   return x;
 }
 const REP_CAPS = {"Deadlift":"8", "Front Squat":"10", "Bench Press":"10", "Kettlebell Deadlift":"12", "Pike Push-up":"6–12",
   "Jump Squat":"8–10", "Inverted Row":"8–15", "Chair Dips":"8–15", "Single-Leg Romanian Deadlift":"8–12"};
-let workouts = buildWeek();
-let nextIndex = (Number(localStorage.getItem(K.next)) || 0) % workouts.length;
 
 /* ---------- personal profile (from v2.7) ---------- */
-let personal = (() => { const p = read(K.personal, null); return p && p.sex && p.ageBracket ? p : null; })();
+function normPersonal(p){
+  if(!p || !p.sex || !p.ageBracket) return null;
+  return {sex:p.sex, ageBracket:p.ageBracket, experience:EXPERIENCE[p.experience] ? p.experience : "some",
+    bodyweight:Number(p.bodyweight) > 30 && Number(p.bodyweight) < 250 ? Math.round(Number(p.bodyweight)) : null,
+    focus:FOCUS_AREAS[p.focus] ? p.focus : "auto", areas:Array.isArray(p.areas) ? p.areas.filter(a => BODY_AREAS[a]) : []};
+}
+let personal = normPersonal(read(K.personal, null));
+const focusOf = (person = personal) => !person ? "balanced" : person.focus === "auto" ? (SEX_DEFAULT_FOCUS[person.sex] || "balanced") : person.focus;
 function ageGuidance(b){
   return {"60+":"Favor gradual progression, joint-friendly options and sufficient recovery; do not assume low capacity solely because of age.",
     "50-59":"Use progressive overload with deliberate recovery and mobility; preserve strength and power where technique is sound.",
@@ -274,6 +314,9 @@ function ageGuidance(b){
     "30-39":"Use normal progressive overload while monitoring recovery and movement quality."}[b]
     || "Use normal progressive overload appropriate to training age, technique and readiness.";
 }
+
+let workouts = buildWeek();
+let nextIndex = (Number(localStorage.getItem(K.next)) || 0) % workouts.length;
 
 /* ---------- history ---------- */
 const getHistory = () => { const x = read(K.history, []); return Array.isArray(x) ? x : []; };
@@ -293,50 +336,73 @@ function volumeOf(details){
 }
 
 /* ---------- readiness adaptation (from v2.3.1) ---------- */
+/* Today's readiness tier from the check-in. */
+function readinessTier(r){
+  if(r.energy <= 1 || r.soreness >= 5) return "recovery";
+  if(r.energy <= 2 || r.soreness >= 4) return "easy";
+  if(r.energy >= 4 && r.soreness <= 2) return "push";
+  return "normal";
+}
+const TIER_TEXT = {
+  push:{label:"Fresh — push a little", message:"You're fresh: small step up where last time felt controlled."},
+  normal:{label:"Planned session", message:"Train as planned at RPE 7–8, keeping 1–3 reps in reserve on the big lifts."},
+  easy:{label:"Lighter day", message:"Low energy or sore: about 7% lighter, one fewer accessory set, stop 3–4 reps short, longer rests, easier cardio."},
+  recovery:{label:"Recovery day", message:"Very tired or very sore: about 15% lighter, fewer sets, no jumping, easy cardio. Moving still helps."}
+};
 function readinessProfile(r){
-  const low = r.energy <= 2, high = r.soreness >= 4, mod = r.soreness === 3;
-  if(low || high) return r.time === 60
-    ? {mode:"recovery60", label:"Recovery session", message:"Short and easy today: 3–4 reps in reserve, fewer sets, gentle conditioning."}
-    : {mode:"reduced", label:"Reduced load", message:"Keep 3–4 reps in reserve, trim accessory volume and keep conditioning controlled."};
-  if(r.time === 60) return {mode:"time60", label:"60-minute priority", message:"Warm-up, main lift, one key accessory, durability, conditioning and a cooldown."};
-  if(r.time === 75 || mod) return {mode:"balanced75", label:"Balanced session", message:"Key lifts and conditioning stay; accessory volume is slightly reduced."};
-  return {mode:"full", label:"Full session", message:"Complete the planned work at RPE 7–8, keeping 1–3 reps in reserve on compound lifts."};
+  const tier = readinessTier(r), t = TIER_TEXT[tier];
+  const time = {45:"45-minute express: main lift, one accessory paired with core, short cardio and a stretch.",
+    60:"60 minutes: warm-up, main lift, key accessories, core, cardio and a cooldown.", 75:"", 90:""}[r.time] || "";
+  const mode = tier === "recovery" || tier === "easy" ? (r.time <= 60 ? "recovery60" : "reduced") : r.time === 45 ? "time45" : r.time === 60 ? "time60" : r.time === 75 ? "balanced75" : "full";
+  return {mode, tier, label:t.label + (r.time <= 60 ? ` · ${r.time} min` : ""), message:[t.message, time].filter(Boolean).join(" ")};
 }
 function adaptExercise(ex, p){
   const x = clone(ex);
-  if(p.mode === "recovery60"){
+  if(p.mode === "recovery60" || p.tier === "recovery"){
     if(["Strength","Hypertrophy","Power","Durability"].includes(x.block)) x.sets = Math.max(2, x.sets-1);
     if(x.block === "Conditioning"){
-      if(x.n.includes("StairMaster Steady State")) x.reps = "15–20 min";
+      if(/Steady|Walk/.test(x.n)) x.reps = "15–20 min easy";
       else if(x.n.includes("Intervals")) x.sets = Math.min(x.sets, 4);
       else x.sets = Math.max(3, x.sets-2);
     }
   }else if(p.mode === "reduced"){
     if(["Hypertrophy","Durability"].includes(x.block)) x.sets = Math.max(2, x.sets-1);
     if(x.block === "Conditioning" && x.sets > 1) x.sets = Math.max(4, x.sets-1);
+  }else if(p.mode === "time45"){
+    if(["Hypertrophy","Durability"].includes(x.block)) x.sets = Math.min(x.sets, 3);
+    if(x.block === "Conditioning"){ if(/Steady|Walk/.test(x.n)) x.reps = "12–15 min"; else if(x.sets > 1) x.sets = Math.min(x.sets, 4); }
   }else if(p.mode === "time60"){
     if(x.block === "Hypertrophy") x.sets = Math.max(2, x.sets-1);
-    if(x.block === "Conditioning"){ if(x.n.includes("StairMaster Steady State")) x.reps = "18–20 min"; else if(x.sets > 1) x.sets = Math.max(4, x.sets-1); }
+    if(x.block === "Conditioning"){ if(/Steady|Walk/.test(x.n)) x.reps = "18–20 min"; else if(x.sets > 1) x.sets = Math.max(4, x.sets-1); }
   }else if(p.mode === "balanced75"){
     if(x.block === "Hypertrophy" && x.sets > 3) x.sets = 3;
   }
+  if((p.tier === "easy" || p.tier === "recovery") && x.rest && ["Strength","Hypertrophy","Power","Durability"].includes(x.block)) x.rest += 30;   // more recovery between working sets
   return x;
 }
 function adaptWorkout(w, r){
   const p = readinessProfile(r);
   const all = clone(w.exercises);
   let keep = all.slice();
-  if(r.time === 60){
+  if(r.time <= 60){
     const pick = [keep.find(x => x.block === "Mobility"), keep.find(x => x.block === "Strength"),
       keep.find(x => ["Hypertrophy","Power"].includes(x.block)), keep.find(x => x.block === "Durability"),
       keep.find(x => x.block === "Conditioning"), keep.find(x => x.block === "Flexibility")].filter(Boolean);
+    if(r.time === 60){ const second = keep.find(x => x.block === "Strength" && !pick.includes(x)); if(second) pick.push(second); }
     keep = keep.filter(x => pick.includes(x));
   }else if(r.time === 75){
     let m = false, f = false;
     keep = keep.filter(x => { if(x.block === "Mobility"){ if(m) return false; m = true; } if(x.block === "Flexibility"){ if(f) return false; f = true; } return true; });
   }
-  if(r.energy <= 2 || r.soreness >= 4){ let gone = false; keep = keep.filter(x => { if(!gone && x.block === "Hypertrophy"){ gone = true; return false; } return true; }); }
-  return {profile:p, all, keep:keep.map(x => adaptExercise(x, p))};
+  if(p.tier === "easy" || p.tier === "recovery"){ let gone = false; keep = keep.filter(x => { if(!gone && x.block === "Hypertrophy"){ gone = true; return false; } return true; }); }
+  if(p.tier === "recovery") keep = keep.filter(x => x.block !== "Power");            // no jumping or explosive work
+  const out = keep.map(x => adaptExercise(x, p));
+  if(r.time === 45){
+    // save time: do the accessory and core back-to-back, then rest
+    const acc = out.find(x => ["Hypertrophy","Power"].includes(x.block)), core = out.find(x => x.block === "Durability");
+    if(acc && core){ acc.supersetWith = core.n; acc.restPlanned = acc.rest; acc.rest = 15; }
+  }
+  return {profile:p, all, keep:out};
 }
 
 /* ---------- tracking + progression (from v2.4) ---------- */
@@ -399,6 +465,64 @@ function suggestion(ex, prev, reduced){
   if(rpe >= 9) return de ? `Letztes Mal war sehr schwer. Versuch ${lo} kg oder weniger Wiederholungen.` : `Last time was very hard. Try ${lo} kg or fewer reps.`;
   return de ? `Wiederhole ${same} kg und mach die Wiederholungen sauberer. Steigere, sobald der letzte Satz bei RPE 7–8 liegt.`
             : `Repeat ${same} kg and tighten the reps. Go up once the last set sits at RPE 7–8.`;
+}
+
+/* ---------- today's target: profile + history + check-in ----------
+   Weight: last time's working weight (progressed by how hard it felt), or a starting estimate from
+   the profile when there's no history. Then today's readiness nudges it up or down. */
+function loadKind(n){ return (LOAD_GUIDE[n] || [0, /Dumbbell|Farmer|Renegade/.test(n) ? "db" : "bb"])[1]; }
+function roundLoad(v, kind){ const st = LOAD_STEP[kind] || 2.5; return Math.max(LOAD_MIN[kind] || st, Math.round(v / st) * st); }
+function estimateLoad(ex){
+  const g = LOAD_GUIDE[ex.n]; if(!g) return null;
+  const [ratio, kind, region] = g, per = personal || {};
+  const bw = per.bodyweight || DEFAULT_BW[per.sex] || 72;
+  const sexF = ((SEX_LOAD[per.sex] || SEX_LOAD.male)[region]) || 1;
+  const reps = Math.max(...(String(ex.reps).match(/\d+/g) || [8]).map(Number));
+  const repF = reps <= 5 ? 1.12 : reps >= 15 ? 0.75 : reps >= 12 ? 0.85 : 1;
+  return roundLoad(bw * ratio * sexF * (AGE_LOAD[per.ageBracket] || 1) * (EXP_LOAD[per.experience] || 1) * repF, kind);
+}
+const fmtRest = sec => sec >= 60 ? `${Math.floor(sec/60)}:${String(sec%60).padStart(2,"0")}` : `${sec}s`;
+function todayTarget(ex){
+  const t = trackingType(ex), tier = (state && state.adaptation && state.adaptation.tier) || "normal", de = isDE();
+  const prev = previousFor(ex.n), sets = ex.sets.length, reps = repsText(ex.reps);
+  const restTxt = ex.rest ? ` · ${de ? "Pause" : "rest"} ${fmtRest(ex.rest)}` : "";
+  const TIER = {push:de ? "Du bist frisch." : "You're fresh.", easy:de ? "Leichter heute (wenig Energie oder Muskelkater)." : "Lighter today (low energy or sore).",
+    recovery:de ? "Erholungstag: deutlich leichter." : "Recovery day: much lighter.", normal:""}[tier];
+  if(t === "loadReps" || t === "carry"){
+    const kind = loadKind(ex.n), inc = LOAD_STEP[kind] || 2.5;
+    let base = null, why = "";
+    const done = prev && Array.isArray(prev.sets) ? prev.sets.filter((q,i) => !prev.done || prev.done[i] !== false).map(q => num(q.w)).filter(v => v != null && v > 0) : [];
+    if(done.length){
+      base = Math.max(...done); const rpe = Number(prev.rpe || 8);
+      if(rpe <= 7){ base += inc; why = de ? "Mehr als letztes Mal – es fühlte sich kontrolliert an." : "Up from last time — it felt controlled."; }
+      else if(rpe >= 9){ base -= inc; why = de ? "Weniger als letztes Mal – es war sehr schwer." : "Down from last time — it was very hard."; }
+      else { why = de ? "Wie letztes Mal – mach die Wiederholungen sauberer." : "Same as last time — make the reps cleaner."; if(tier === "push") base += inc; }
+    }else{
+      base = estimateLoad(ex);
+      why = de ? "Startwert aus deinem Profil – nach dem ersten Satz anpassen." : "Starting estimate from your profile — adjust after your first set.";
+    }
+    if(base == null) return {text:`${sets} × ${reps}${restTxt}`, why:[TIER].filter(Boolean).join(" ")};
+    const factor = tier === "easy" ? 0.925 : tier === "recovery" ? 0.85 : 1;
+    const w = roundLoad(base * factor, kind);
+    const each = kind === "db" ? (de ? " je Hand" : " each") : "";
+    const tierWhy = tier === "easy" ? (de ? "Etwa 7 % leichter, 3–4 Wdh. vor dem Limit aufhören." : "About 7% lighter; stop 3–4 reps before your limit.")
+      : tier === "recovery" ? (de ? "Etwa 15 % leichter, lockere Anstrengung." : "About 15% lighter; easy effort.") : "";
+    return {w:fmtKg(w), text:`${sets} × ${reps} @ ${fmtKg(w)} kg${each}${restTxt}`, why:[TIER, tierWhy, why].filter(Boolean).join(" ")};
+  }
+  if(t === "bwReps"){
+    const firstTime = !prev && personal && (personal.experience === "new" || personal.sex === "female") && ex.n === "Push-up";
+    const add = tier === "push" ? (de ? "Versuch 1–2 Wiederholungen mehr oder 3 Sekunden absenken." : "Try 1–2 more reps, or a 3-second lowering.")
+      : tier === "easy" || tier === "recovery" ? (de ? "Hör 3–4 Wiederholungen vor dem Limit auf." : "Stop 3–4 reps before your limit.") : "";
+    const ver = firstTime ? (de ? "Starte mit den Händen auf einer Bank, wenn nötig." : "Start with hands on a bench if needed.") : "";
+    return {text:`${sets} × ${reps}${restTxt}`, why:[TIER, add, ver].filter(Boolean).join(" ")};
+  }
+  if(["bike","stair","conditioning","bwCond"].includes(t)){
+    const eff = tier === "push" ? (de ? "Harte Phasen bei RPE 8." : "Hard efforts at RPE 8.") : tier === "easy" ? (de ? "Harte Phasen nur bei RPE 6." : "Hard efforts only at RPE 6.")
+      : tier === "recovery" ? (de ? "Locker bei RPE 5 – du solltest reden können." : "Easy at RPE 5 — you should be able to talk.") : (de ? "Harte Phasen bei RPE 7." : "Hard efforts at RPE 7.");
+    return {text:`${sets} × ${reps}${restTxt}`, why:[TIER, eff].filter(Boolean).join(" ")};
+  }
+  if(t === "hold") return {text:`${sets} × ${reps}${restTxt}`, why:[TIER, tier === "push" ? (de ? "Füge 5–10 Sekunden hinzu." : "Add 5–10 seconds.") : ""].filter(Boolean).join(" ")};
+  return {text:`${sets} × ${reps}${restTxt}`, why:""};
 }
 
 /* ---------- sound + voice ----------
@@ -485,7 +609,12 @@ const ADAPT_DE = {
   balanced75:["Ausgewogene Einheit","Hauptübungen und Ausdauer bleiben; etwas weniger Zusatzvolumen."],
   full:["Volle Einheit","Absolviere das geplante Training bei RPE 7–8 mit 1–3 Wiederholungen in Reserve bei Grundübungen."]
 };
-const adaptText = a => isDE() && ADAPT_DE[a.mode] ? {label:ADAPT_DE[a.mode][0], message:ADAPT_DE[a.mode][1]} : a;
+const TIER_DE = {push:["Frisch – etwas mehr","Du bist frisch: kleiner Schritt nach oben, wo es letztes Mal kontrolliert war."],
+  normal:["Geplante Einheit","Trainiere wie geplant bei RPE 7–8 mit 1–3 Wiederholungen in Reserve."],
+  easy:["Leichterer Tag","Wenig Energie oder Muskelkater: etwa 7 % leichter, ein Zusatzsatz weniger, längere Pausen, lockereres Cardio."],
+  recovery:["Erholungstag","Sehr müde oder starker Muskelkater: etwa 15 % leichter, weniger Sätze, keine Sprünge, lockeres Cardio."]};
+const adaptText = a => isDE() && a.tier && TIER_DE[a.tier] ? {label:TIER_DE[a.tier][0] + (a.targetMinutes <= 60 ? ` · ${a.targetMinutes} Min` : ""), message:TIER_DE[a.tier][1]}
+  : isDE() && ADAPT_DE[a.mode] ? {label:ADAPT_DE[a.mode][0], message:ADAPT_DE[a.mode][1]} : a;
 const langLabel = l => l === "de" ? "Deutsch" : "English";
 const genderLabel = g => ({male:"Male", female:"Female", neutral:"Neutral"})[g];
 const LANG_TAG = {en:"en", de:"de"};
@@ -602,7 +731,7 @@ function startWorkout(index, r){
   state = {
     workoutIndex:index, workoutName:w.name, startTime:Date.now(), exerciseIndex:0,
     readiness:clone(r),
-    adaptation:{mode:a.profile.mode, label:a.profile.label, message:a.profile.message, targetMinutes:r.time},
+    adaptation:{mode:a.profile.mode, tier:a.profile.tier, label:a.profile.label, message:a.profile.message, targetMinutes:r.time},
     exercises:a.keep.map(ex => ({...ex, skipped:false, rpe:null, sets:Array.from({length:ex.sets}, () => ({w:"", r:"", done:false}))}))
   };
   persist(); unlockAudio(); go("workout");
@@ -765,7 +894,7 @@ function renderCheckin(m, index){
     h("p", {class:"muted"}, "Three quick answers. The session adapts to how you feel today."),
     h("div", {class:"q"}, h("label", null, "Energy"), scale("energy", [1,2,3,4,5], ["Flat","","","","Great"])),
     h("div", {class:"q"}, h("label", null, "Soreness"), scale("soreness", [1,2,3,4,5], ["Fresh","","","","Very"])),
-    h("div", {class:"q"}, h("label", null, "Time available"), scale("time", [60,75,90], ["min","min","min"], true)),
+    h("div", {class:"q"}, h("label", null, "Time available"), scale("time", [45,60,75,90], ["min","min","min","min"], true)),
     preview,
     h("div", {class:"section"}, start));
   paint();
@@ -795,7 +924,7 @@ function renderWorkout(m){
         h("div", {class:"wk-title"}, h("div", {class:"clock"}, mmss((Date.now()-state.startTime)/1000)), `${nm.letter} · ${nm.title}`),
         h("button", {class:"icon-btn plain", "aria-label":"Workout options", onclick:workoutMenu}, "⋯")),
       barSlot),
-    ...(state.adaptation && state.adaptation.mode !== "full"
+    ...(state.adaptation && (state.adaptation.mode !== "full" || state.adaptation.tier === "push")
       ? [h("button", {class:"adapt-pill", onclick:() => toast(adaptText(state.adaptation).message)}, adaptText(state.adaptation).label)] : []),
     body,
     h("nav", {class:"actionbar", "aria-label":"Workout controls"},
@@ -835,8 +964,14 @@ function paintExercise(){
     return;
   }
 
-  const last = prevLine(ex, prev);
-  b.append(h("div", {class:"advice", "data-block":ex.block}, suggestion(ex, prev, reducedDay()), last ? h("span", {class:"last"}, last) : null));
+  const last = prevLine(ex, prev), tgt = todayTarget(ex);
+  const loadType = ["loadReps","carry"].includes(type);
+  b.append(h("div", {class:"advice", "data-block":ex.block},
+    h("div", {class:"today-target"}, h("span", {class:"tt-label"}, isDE() ? "Heute" : "Today"), h("b", null, tgt.text)),
+    tgt.why ? h("span", {class:"why"}, tgt.why) : null,
+    type === "repsTime" ? h("span", {class:"why"}, suggestion(ex, prev, reducedDay())) : null,
+    ex.supersetWith ? h("span", {class:"superset"}, isDE() ? `Supersatz: direkt weiter mit ${exName(ex.supersetWith)}, dann pausieren.` : `Superset: go straight to ${exName(ex.supersetWith)}, then rest.`) : null,
+    last ? h("span", {class:"last"}, last) : null));
   const vid = videoFor(ex);
   const thumb = h("span", {class:"launch-thumb", "aria-hidden":"true"}, vid ? h("img", {src:ytThumb(vid), alt:"", loading:"lazy"}) : null, h("span", {class:"play"}, "▶"));
   thumb.querySelector("img")?.addEventListener("error", e => e.target.remove());
@@ -858,7 +993,7 @@ function paintExercise(){
   const step = ["bike","stair","conditioning"].includes(type) ? 1 : 2.5;
   ex.sets.forEach((s,i) => {
     const p = prev && prev.sets && prev.sets[i] && !(prev.done && prev.done[i] === false) ? prev.sets[i] : null;
-    const phW = p && p.w ? p.w : (type === "loadReps" || type === "carry" ? "kg" : "–");
+    const phW = tgt.w || (p && p.w ? p.w : (type === "loadReps" || type === "carry" ? "kg" : "–"));
     const phR = p && p.r ? p.r : repsText(ex.reps);
     const rIn = h("input", {inputmode:type === "bwReps" ? "numeric" : simple || type==="conditioning" || type==="bike" || type==="stair" ? "text" : "numeric", value:s.r, placeholder:phR, "aria-label":`Set ${i+1} ${cols[simple?1:2]}`, maxlength:"40"});
     rIn.addEventListener("input", () => { s.r = rIn.value.slice(0,40); persist(); });
@@ -869,7 +1004,7 @@ function paintExercise(){
     if(!simple){
       wIn = h("input", {inputmode:"decimal", value:s.w, placeholder:phW, "aria-label":`Set ${i+1} ${cols[1]}`, maxlength:"12"});
       wIn.addEventListener("input", () => { s.w = wIn.value.slice(0,12); persist(); });
-      const bump = d => { const base = num(wIn.value) ?? num(p && p.w) ?? 0; wIn.value = fmtKg(Math.max(0, base + d)); s.w = wIn.value; persist(); };
+      const bump = d => { const base = num(wIn.value) ?? num(tgt.w) ?? num(p && p.w) ?? 0; wIn.value = fmtKg(Math.max(0, base + d)); s.w = wIn.value; persist(); };
       row.append(h("div", {class:"load"},
         h("button", {"aria-label":`Decrease by ${step}`, onclick:() => bump(-step)}, "−"), wIn,
         h("button", {"aria-label":`Increase by ${step}`, onclick:() => bump(step)}, "+")));
@@ -878,12 +1013,13 @@ function paintExercise(){
     tick.addEventListener("click", () => {
       if(!s.done){
         // One tap repeats last time: blanks take the placeholder values from the previous session.
-        if(wIn && !s.w && p && p.w) s.w = p.w;
+        if(wIn && !s.w && (tgt.w || (p && p.w))) s.w = tgt.w || p.w;
         if(!s.r){ if(p && p.r) s.r = p.r; else if(/^\d+$/.test(String(ex.reps).trim())) s.r = String(ex.reps).trim(); }
         s.done = true;
         const n = ex.sets[i+1];
         if(n && !n.done){ if(!n.w && s.w) n.w = s.w; if(!n.r && s.r) n.r = s.r; }
         persist();
+        if(ex.supersetWith && ex.sets.some(q => !q.done)) toast(isDE() ? `Jetzt: ${exName(ex.supersetWith)}` : `Now: ${exName(ex.supersetWith)}`);
         if(ex.rest > 0) startRest(ex.rest);
         else if(voice.mode === "full") speak(phrase().good);
       }else{ s.done = false; persist(); }
@@ -1086,9 +1222,11 @@ function coachContext(){
     app:`Zahi Fit v${VERSION}`,
     athleteName: me.name && me.name !== "Me" ? me.name : null,
     profile:{trainingDays:plan.days, primaryGoal:GOALS[plan.primary], secondaryGoals:plan.secondary.map(x => GOALS[x]), preferredDuration:plan.duration, equipment:plan.equipment === "bodyweight" ? "Bodyweight only (no gym equipment)" : "Full gym"},
-    personalProfile: personal ? {sex:personal.sex, ageBracket:personal.ageBracket, programmingGuidance:ageGuidance(personal.ageBracket),
+    personalProfile: personal ? {sex:personal.sex, ageBracket:personal.ageBracket, experience:EXPERIENCE[personal.experience], bodyweightKg:personal.bodyweight,
+      focusArea:FOCUS_AREAS[focusOf()] , goEasyOn:personal.areas.map(a => BODY_AREAS[a]), programmingGuidance:ageGuidance(personal.ageBracket),
       instruction:"Use sex only where physiologically relevant. Do not stereotype exercise capability. Tailor recovery, progression and movement options to age bracket, readiness, goals and actual performance."} : {sex:null, ageBracket:null},
-    readiness: state ? state.readiness : null,
+    readiness: state ? {...state.readiness, tier:state.adaptation && state.adaptation.tier} : null,
+    todayTarget: state && curEx() ? todayTarget(curEx()) : null,
     adaptation: state ? state.adaptation : null,
     workout: state ? state.workoutName : (workouts[nextIndex] || {}).name,
     progressPercent: state ? completion() : 0,
@@ -1493,7 +1631,7 @@ function planEditor(draft, onChange){
         if(draft.secondary.includes(k)) draft.secondary = draft.secondary.filter(x => x !== k); else if(draft.secondary.length < 3) draft.secondary.push(k); else toast("Pick up to three.");
         paint(); onChange && onChange(); }}, t))),
       h("div", {class:"field-label"}, "Session length"),
-      h("div", {class:"pick", role:"group"}, [60,75,90].map(d => h("button", {"aria-pressed":String(draft.duration === d), onclick:() => { draft.duration = d; paint(); onChange && onChange(); }}, `${d} min`))));
+      h("div", {class:"pick", role:"group"}, [45,60,75,90].map(d => h("button", {"aria-pressed":String(draft.duration === d), onclick:() => { draft.duration = d; paint(); onChange && onChange(); }}, `${d} min`))));
   };
   paint();
   return wrap;
@@ -1502,15 +1640,41 @@ function applyPlan(p){
   plan = {...p, secondary:[...p.secondary]}; write(K.plan, plan);
   workouts = buildWeek(); nextIndex = 0; localStorage.setItem(K.next, "0");
 }
-function aboutEditor(draft, onChange){
+function aboutEditor(draft, onChange, part = "all"){
   const wrap = h("div");
-  const paint = () => { onChange && onChange(); wrap.replaceChildren(
-    h("div", {class:"field-label"}, "Sex"),
-    h("div", {class:"pick", role:"group"}, [["male","Male"],["female","Female"]].map(([v,t]) => h("button", {"aria-pressed":String(draft.sex === v), onclick:() => { draft.sex = v; paint(); }}, t))),
-    h("div", {class:"field-label"}, "Age"),
-    h("div", {class:"pick", role:"group"}, ["18-29","30-39","40-49","50-59","60+"].map(v => h("button", {"aria-pressed":String(draft.ageBracket === v), onclick:() => { draft.ageBracket = v; paint(); }}, v.replace("-", "–")))),
-    h("p", {class:"tiny muted"}, "Used by your coach for recovery and progression. Sex is only used where it's physiologically relevant.")); };
+  draft.areas = Array.isArray(draft.areas) ? draft.areas : [];
+  draft.focus = draft.focus || "auto"; draft.experience = draft.experience || "some";
+  const pick = (label, opts, key, sub) => [h("div", {class:"field-label"}, label, sub ? h("small", null, " " + sub) : null),
+    h("div", {class:"pick", role:"group"}, opts.map(([v,t]) => h("button", {"aria-pressed":String(draft[key] === v), onclick:() => { draft[key] = v; paint(); }}, t)))];
+  const paint = () => { onChange && onChange();
+    const out = [];
+    if(part !== "body"){
+      out.push(...pick("Sex", [["male","Male"],["female","Female"]], "sex"),
+        ...pick("Age", ["18-29","30-39","40-49","50-59","60+"].map(v => [v, v.replace("-", "–")]), "ageBracket"),
+        ...pick("Training experience", Object.entries(EXPERIENCE), "experience"));
+      const bwIn = h("input", {class:"text-input small-input", inputmode:"numeric", placeholder:"e.g. 80", value:draft.bodyweight || "", maxlength:"3", "aria-label":"Body weight in kg"});
+      bwIn.addEventListener("input", () => { const v = Number(bwIn.value.replace(/\D/g, "")); draft.bodyweight = v > 30 && v < 250 ? v : null; onChange && onChange(); });
+      out.push(h("div", {class:"field-label"}, "Body weight ", h("small", null, "kg, optional — for starting weights")), bwIn);
+    }
+    if(part !== "basic"){
+      out.push(...pick("Focus area", Object.entries(FOCUS_AREAS), "focus",
+        draft.focus === "auto" ? (draft.sex === "female" ? "— extra glute & leg work" : draft.sex === "male" ? "— extra upper-body work" : "") : ""));
+      const toggle = a => { draft.areas = draft.areas.includes(a) ? draft.areas.filter(x => x !== a) : [...draft.areas, a]; paint(); };
+      out.push(h("div", {class:"field-label"}, "Joints to go easy on or pain areas ", h("small", null, "optional")),
+        h("div", {class:"pick", role:"group"},
+          h("button", {"aria-pressed":String(!draft.areas.length), onclick:() => { draft.areas = []; paint(); }}, "None"),
+          Object.entries(BODY_AREAS).map(([k,t]) => h("button", {"aria-pressed":String(draft.areas.includes(k)), onclick:() => toggle(k)}, t))),
+        h("p", {class:"tiny muted"}, "Exercises that load these areas are swapped for gentler ones. This is a guide, not medical advice: if pain is sharp, getting worse or lasts, stop and get it checked by a physio or doctor."));
+    }
+    if(part !== "body") out.push(h("p", {class:"tiny muted"}, "Sex, age, experience and body weight set your starting weights, rest and exercise versions. With Auto focus, women get extra glute & leg work and men extra upper-body work — pick a focus to change that."));
+    wrap.replaceChildren(...out);
+  };
   paint(); return wrap;
+}
+const aboutKey = p => JSON.stringify(p ? [p.sex, p.ageBracket, p.experience || "some", p.bodyweight || null, p.focus || "auto", [...(p.areas || [])].sort()] : null);
+function savePersonal(draft){
+  personal = normPersonal(draft); write(K.personal, personal);
+  workouts = buildWeek(); nextIndex = nextIndex % workouts.length;       // the plan is rebuilt for the new profile
 }
 function download(name, data){
   const a = h("a", {href:URL.createObjectURL(new Blob([data], {type:"application/json"})), download:name});
@@ -1542,14 +1706,14 @@ function renderProfile(m){
   paintPlanSave();
 
   // About you
-  const ad = personal ? {...personal} : {sex:null, ageBracket:null};
+  const ad = personal ? clone(personal) : {sex:null, ageBracket:null, experience:"some", focus:"auto", areas:[], bodyweight:null};
   const aboutSave = h("button", {class:"btn block section", onclick:() => {
     if(!ad.sex || !ad.ageBracket) return;
-    personal = {...ad}; write(K.personal, personal); paintAboutSave(); toast("Saved.");
+    savePersonal(ad); paintAboutSave(); toast("Saved. Your plan has been updated for you."); go("profile");
   }});
   const paintAboutSave = () => {
     const complete = !!(ad.sex && ad.ageBracket);
-    const changed = complete && (!personal || personal.sex !== ad.sex || personal.ageBracket !== ad.ageBracket);
+    const changed = complete && aboutKey(normPersonal(ad)) !== aboutKey(personal);
     actionState(aboutSave, changed, "Save", complete ? "Saved" : "Choose sex and age");
     aboutSave.disabled = !changed;
   };
@@ -1638,30 +1802,32 @@ function renderProfile(m){
 
 /* ---------- First-run setup ---------- */
 function onboarding(){
-  const draftAbout = personal ? {...personal} : {sex:null, ageBracket:null};
+  const draftAbout = personal ? clone(personal) : {sex:null, ageBracket:null, experience:"some", focus:"auto", areas:[], bodyweight:null};
   const draftPlan = clone(plan);
   let step = 0;
   const ov = h("div", {class:"onboard", role:"dialog", "aria-modal":"true"}), inner = h("div", {class:"app"});
   ov.append(inner);
   const done = () => { write(K.onboarded, true); ov.remove(); go("today"); };
   const paint = () => {
-    inner.replaceChildren(h("div", {class:"progress"}, [0,1,2].map(k => h("i", {class:k <= step ? "on" : ""}))));
+    inner.replaceChildren(h("div", {class:"progress"}, [0,1,2,3].map(k => h("i", {class:k <= step ? "on" : ""}))));
     if(step === 0){
-      inner.append(h("h1", null, me.name && me.name !== "Me" ? `Hi ${me.name}, let's set up your training` : "Let's set up your training"), h("p", {class:"muted"}, "Two quick screens. You can change any of this later in Profile."), aboutEditor(draftAbout));
+      inner.append(h("h1", null, me.name && me.name !== "Me" ? `Hi ${me.name}, let's set up your training` : "Let's set up your training"), h("p", {class:"muted"}, "A few quick screens. You can change any of this later in Profile."), aboutEditor(draftAbout, null, "basic"));
     }else if(step === 1){
+      inner.append(h("h1", null, "Your body"), h("p", {class:"muted"}, "Choose what to emphasise and anything to go easy on."), aboutEditor(draftAbout, null, "body"));
+    }else if(step === 2){
       inner.append(h("h1", null, "What are you training for?"), h("p", {class:"muted"}, "Your weekly sessions are built from this."), planEditor(draftPlan));
     }else{
-      const previewWeek = buildWeek(draftPlan);
+      const previewWeek = buildWeek(draftPlan, normPersonal(draftAbout));
       inner.append(h("h1", null, `Your ${draftPlan.days}-day plan`), h("p", {class:"muted"}, `${GOALS[draftPlan.primary]} focus · ${draftPlan.duration} min sessions`),
         h("div", {class:"tiles section"}, previewWeek.map((w,k) => { const n = splitName(w.name); return h("div", {class:"tile", "data-tone":k % 4}, h("span", {class:"l"}, n.letter), h("b", null, n.title), h("span", null, `${w.exercises.length} exercises`)); })));
     }
     inner.append(h("div", {class:"foot btn-row"},
       step === 0 ? h("button", {class:"btn", onclick:done}, "Skip for now") : h("button", {class:"btn", onclick:() => { step--; paint(); }}, "Back"),
       h("button", {class:"btn primary", onclick:() => {
-        if(step === 0){ if(draftAbout.sex && draftAbout.ageBracket){ personal = {...draftAbout}; write(K.personal, personal); } step++; paint(); }
-        else if(step === 1){ step++; paint(); }
+        if(step === 1 && draftAbout.sex && draftAbout.ageBracket){ personal = normPersonal(draftAbout); write(K.personal, personal); }
+        if(step < 3){ step++; paint(); }
         else { applyPlan(draftPlan); done(); }
-      }}, step === 2 ? "Start training" : "Continue")));
+      }}, step === 3 ? "Start training" : "Continue")));
     ov.scrollTo(0, 0);
   };
   paint();

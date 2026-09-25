@@ -1,11 +1,11 @@
 /* Zahi Fit v4 service worker.
    Core files are precached per release. YouTube videos stream from YouTube and aren't cached.
    A new version waits until the user taps "Update" so the app never reloads mid-set. */
-const VERSION = "4.7.0";
+const VERSION = "4.8.0";
 const CORE = `zahi-fit-core-${VERSION}`;
 const MEDIA = "zahi-fit-media-v1";
 const ASSETS = [
-  "./", "./index.html", "./styles.css", "./data.js", "./data-de.js", "./data-plan.js", "./data-video.js", "./app.js", "./manifest.json",
+  "./", "./index.html", "./styles.css", "./data.js", "./data-de.js", "./data-plan.js", "./data-video.js", "./data-profile.js", "./app.js", "./manifest.json",
   "./icon-192.png", "./icon-512.png",
   "./fonts/nunito-latin-400-normal.woff2", "./fonts/nunito-latin-600-normal.woff2",
   "./fonts/nunito-latin-700-normal.woff2", "./fonts/nunito-latin-800-normal.woff2",
