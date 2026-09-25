@@ -476,3 +476,15 @@ body.locked .tabs{display:none}
 .acct-head .avatar{width:48px;height:48px;display:grid;place-items:center;border-radius:50%;font-weight:800;font-size:20px;flex:none}
 .acct-head b{display:block;font-weight:800;font-size:17px}.acct-head span:not(.avatar){font-size:13px;color:var(--muted)}
 .acct-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+/* v4.9.5: voice finder */
+.finder-cta{margin-top:10px}
+.finder-cta.warn{padding:12px;border-radius:14px;background:var(--orange-soft)}
+.finder-cta.warn p{margin:0 0 10px;color:#7a3a10}
+.finder-row{display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.finder-row.cur .finder-name b{color:var(--teal)}
+.finder-name b{display:block;font-weight:800;font-size:15px}
+.finder-name span{font-size:12.5px;color:var(--muted)}
+.finder-help{margin-top:16px;padding:12px;border-radius:14px;background:var(--soft)}
+.finder-help p{margin:4px 0}
+.finder-list{margin-top:10px}.finder-row .icon-btn{width:44px;height:44px;font-size:16px}

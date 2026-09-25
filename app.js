@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.9.4";
+const VERSION = "4.9.5";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -682,7 +682,7 @@ function pickVoice(set){
 /* Male: calm, steady, a little slower. Female: bright and warm. Real voices get only a light touch;
    a shared single voice gets a moderate shift (big shifts sound robotic). Neutral is unchanged. */
 function toneFor(gender, exact, mid){
-  if(gender === "male") return exact ? {pitch:0.97, rate:0.95} : {pitch:0.84, rate:0.93};
+  if(gender === "male") return exact ? {pitch:0.97, rate:0.95} : {pitch:0.78, rate:0.92};
   if(gender === "female") return exact ? {pitch:1.03, rate:1.0} : {pitch:1.12, rate:1.0};
   return mid ? {pitch:0.86, rate:1.0} : {pitch:1.0, rate:1.0};
 }
@@ -717,6 +717,40 @@ async function speakDevice(text, token, onend, set = voice){
 function speakWith(text, set, {onend, onready} = {}){
   hush(); const token = ++speechToken; onready && onready();
   speakDevice(text, token, onend, {lang:set.lang, gender:set.gender, name:set.name || "", rate:voice.rate, maleName:set.maleName ?? voice.maleName, femaleName:set.femaleName ?? voice.femaleName});
+}
+/* Lists every voice the phone offers for the language (one per accent on most Android phones)
+   so the person can hear each one plainly and pick the one that sounds right for Male or Female. */
+function voiceFinder(gender, onPicked){
+  const lang = voice.lang, key = gender === "male" ? "maleName" : "femaleName", store = gender === "male" ? K.voiceMale : K.voiceFemale;
+  sheet((card, close) => {
+    const vs = voices(lang).filter(v => new RegExp(`^${LANG_TAG[lang]}([-_]|$)`, "i").test(v.lang || ""));
+    const list = h("div", {class:"finder-list"});
+    const line = lang === "de" ? "Hallo, ich bin dein Coach. Lass uns stark trainieren." : "Hi, I'm your coach. Let's make today a strong one.";
+    vs.forEach(v => {
+      const tag = genderOf(v), current = voice[key] === v.name;
+      list.append(h("div", {class:"finder-row" + (current ? " cur" : "")},
+        h("button", {class:"icon-btn", "aria-label":`Listen to ${v.name}`, onclick:() => {
+          unlockAudio(); hush(); const token = ++speechToken;
+          speakDevice(line, token, null, {lang, gender:"neutral", name:v.name, rate:voice.rate});   // plain voice, no pitch change
+        }}, "▶"),
+        h("div", {class:"finder-name"}, h("b", null, v.name), h("span", null, [v.lang, tag ? `${tag} voice` : null].filter(Boolean).join(" · "))),
+        h("button", {class:"btn sm " + (current ? "idle" : "primary"), onclick:() => {
+          voice[key] = v.name; localStorage.setItem(store, v.name); close(); toast(`${v.name} is now your ${gender} voice.`);
+          unlockAudio(); speakWith(SAMPLE[lang][gender], {lang, gender, name:voice.name}); onPicked && onPicked();
+        }}, current ? "In use" : "Use")));
+    });
+    card.append(h("h2", null, `Find a ${gender} voice`),
+      h("p", {class:"small muted"}, `Tap ▶ to hear each voice on your phone as it really sounds. Tap Use on one that sounds ${gender}.`),
+      vs.length ? list : h("p", {class:"small"}, "No voices found for this language yet. Install them first (below)."),
+      h("div", {class:"finder-help"},
+        h("b", null, `None sound ${gender}?`),
+        h("p", {class:"small"}, `Your phone only has ${gender === "male" ? "female" : "male"} voices for this language so far. Give one accent a ${gender} voice (free, 2 minutes):`),
+        h("ol", {class:"howto"},
+          h("li", null, "Phone Settings › search \"Text-to-speech\" › Speech Services by Google › ⚙ › Install voice data."),
+          h("li", null, lang === "de" ? "Tap Deutsch (Deutschland) › listen to each voice › select a " + (gender === "male" ? "male" : "female") + " one."
+            : "Tap English (United Kingdom) (or another English accent) › listen to each voice › select a " + (gender === "male" ? "male" : "female") + " one."),
+          h("li", null, "Fully close and reopen Zahi Fit, come back here and tap Use on that accent."))));
+  });
 }
 const SAMPLE = {en:{male:"This is the male voice. Let's make today a strong one.", female:"This is the female voice. Let's make today a strong one.", neutral:"This is the neutral voice."},
   de:{male:"Das ist die männliche Stimme. Lass uns heute stark trainieren.", female:"Das ist die weibliche Stimme. Lass uns heute stark trainieren.", neutral:"Das ist die neutrale Stimme."}};
@@ -1969,9 +2003,13 @@ function renderProfile(m){
         voice[key] = vsel.value; localStorage.setItem(store, vsel.value); paintTest();
         unlockAudio(); speakWith(SAMPLE[voice.lang][g], {lang:voice.lang, gender:g, name:voice.name});
       });
+      const vsAll = voices(voice.lang), hasReal = vsAll.some(v => genderOf(v) === g) || !!voice[key];
       phoneVoice = h("div", null, h("div", {class:"setting"}, h("span", null, `Voice used for ${genderLabel(g)}`), vsel),
-        g !== "neutral" ? h("p", {class:"tiny muted"}, `For the most natural ${g} voice, give one of your phone's voices a ${g} sound in Google's settings, then choose it here. `,
-          h("button", {class:"linkish", onclick:phoneSetupGuide}, "Show me how")) : null);
+        g !== "neutral" ? h("div", {class:"finder-cta" + (hasReal ? "" : " warn")},
+          !hasReal ? h("p", {class:"small"}, g === "male"
+            ? "Your phone hasn't given Zahi Fit a male voice yet, so Male is a deeper version of a female voice. Find a real male voice on your phone:"
+            : "Find a real female voice on your phone:") : null,
+          h("button", {class:"btn block " + (hasReal ? "" : "primary"), onclick:() => voiceFinder(g, paintVoicePanel)}, `Find a ${g} voice on this phone`)) : null);
     }
     const testBtn = h("button", {class:"btn block section"});
     const pending = () => vdraft.lang !== voice.lang || vdraft.gender !== voice.gender;
