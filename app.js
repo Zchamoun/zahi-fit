@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "5.3.0";
+const VERSION = "5.3.1";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -2921,18 +2921,32 @@ function describeSheet(){
     paint(); setTimeout(() => ta.focus(), 150);
   });
 }
+/* Photo logging: take a new photo or pick one from the gallery. */
 function photoFlow(){
-  const input = h("input", {type:"file", accept:"image/*", capture:"environment", hidden:true});
+  sheet((card, close) => {
+    const pick = fromCamera => { close(); setTimeout(() => photoPick(fromCamera), 120); };
+    card.append(h("h2", null, "Log a meal from a photo"),
+      h("p", {class:"small muted"}, "The food coach looks at the photo and estimates the meal. You can adjust everything before logging."),
+      h("div", {class:"photo-choice"},
+        h("button", {class:"la", onclick:() => pick(true)}, h("span", null, "📷"), "Take a photo"),
+        h("button", {class:"la", onclick:() => pick(false)}, h("span", null, "🖼️"), "Choose from gallery")));
+  });
+}
+function photoPick(fromCamera){
+  // capture opens the camera directly; without it the phone offers the gallery / files
+  const input = h("input", {type:"file", accept:"image/*", hidden:true, ...(fromCamera ? {capture:"environment"} : {})});
   document.body.append(input);
   input.addEventListener("change", async () => {
     const file = input.files && input.files[0]; input.remove(); if(!file) return;
+    if(!/^image\//.test(file.type || "image/")){ toast("That file isn't a photo."); return; }
     const done = busySheet("Looking at your meal…");
     try{
       const image = await shrinkImage(file, 768);
       const data = await foodAI("/photo", {image, context:foodContext()}, 45000);
-      done(); mealsFromAI(data, "photo");
+      done(); mealsFromAI(data, fromCamera ? "photo" : "gallery");
     }catch(err){ done(); toast(aiTrouble(err)); }
   });
+  input.addEventListener("cancel", () => input.remove());
   input.click();
 }
 function shrinkImage(file, max){
@@ -3209,7 +3223,7 @@ function renderFood(m){
     const list = meals.filter(x => x.slot === k); if(!list.length) return;
     const st = totals(list);
     m.append(h("section", {class:"panel section meal-slot"}, h("div", {class:"spread"}, h("h3", null, label), h("span", {class:"small muted"}, `${r0(st.kcal)} kcal · ${r0(st.protein)} g protein`)),
-      ...list.map(x => h("button", {class:"meal-row", onclick:() => mealMenu(x)}, h("div", null, h("b", null, x.name), h("span", null, `${new Date(x.time).toTimeString().slice(0,5)}${x.source === "photo" ? " · 📷" : ""}`)), h("em", null, `${r0(x.kcal)} kcal`)))));
+      ...list.map(x => h("button", {class:"meal-row", onclick:() => mealMenu(x)}, h("div", null, h("b", null, x.name), h("span", null, `${new Date(x.time).toTimeString().slice(0,5)}${x.source === "photo" ? " · 📷" : x.source === "gallery" ? " · 🖼️" : ""}`)), h("em", null, `${r0(x.kcal)} kcal`)))));
   });
   if(!meals.length) m.append(h("p", {class:"small muted section center"}, isToday ? "Nothing logged yet. Tap a quick-add — that's all it takes." : "Nothing logged this day."));
   m.append(ideasCard());
