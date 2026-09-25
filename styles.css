@@ -342,7 +342,7 @@ details.tech[open] summary::after{content:"–"}
 
 /* Tabs */
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;background:#fffffff5;backdrop-filter:blur(10px);box-shadow:0 -1px 0 var(--line);padding:4px 8px calc(4px + var(--safe-b))}
-.tabs .inner{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr)}
+.tabs .inner{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
 .tab{background:none;border:0;min-height:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12.5px;font-weight:700;color:var(--faint)}
 .tab svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .tab[aria-current="page"]{color:var(--teal)}
@@ -492,3 +492,63 @@ body.locked .tabs{display:none}
 .guide-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0 4px}
 .guide-tabs button{justify-content:center}
 .finder-help .linkish{margin-top:6px;padding:4px 0}
+
+/* v5.0: Food */
+.day-nav{display:flex;gap:6px}
+.food-summary .fs-row{display:grid;grid-template-columns:132px 1fr;gap:16px;align-items:center}
+.kcal-ring{position:relative;width:132px;height:132px}
+.kcal-ring svg{width:100%;height:100%}
+.kcal-ring circle{fill:none;stroke-width:10}
+.kcal-ring .bg{stroke:var(--soft2)}
+.kcal-ring .fg{stroke:var(--teal);stroke-linecap:round;transition:stroke-dasharray .4s}
+.kr-text{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.kr-text b{font:700 30px/1 var(--num)}
+.kr-text span{font-size:12px;color:var(--muted)}
+.macro{margin:6px 0}
+.macro-top{display:flex;justify-content:space-between;font-size:13.5px}
+.macro-top b{font-weight:800;font-variant-numeric:tabular-nums}
+.macro-bar{height:8px;border-radius:4px;background:var(--soft2);overflow:hidden;margin-top:4px}
+.macro-bar i{display:block;height:100%;background:var(--orange);border-radius:4px}
+.log-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.la{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 6px;border:0;border-radius:var(--r-lg);background:var(--card);box-shadow:var(--shadow);font-weight:800;font-size:14px}
+.la span{font-size:24px}
+.quick-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.chip{border:0;border-radius:999px;padding:10px 14px;background:var(--card);box-shadow:var(--shadow);font-weight:700;font-size:14px}
+.chip.fav{background:var(--teal-soft)}
+.meal-slot h3{margin:0}
+.meal-row,.food-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px 2px;border:0;border-top:1px solid var(--line);background:none;text-align:left;font-size:15px}
+.meal-row b,.food-row b{display:block;font-weight:800}
+.meal-row span,.food-row span{font-size:12.5px;color:var(--muted)}
+.meal-row em,.food-row em{font-style:normal;font-weight:800;white-space:nowrap}
+.food-results{max-height:48vh;overflow:auto;margin-top:8px}
+.food-item{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.fi-name b{display:block;font-weight:800}.fi-name span{font-size:12.5px;color:var(--muted)}
+.fi-qty{display:flex;align-items:center;gap:6px}
+.fi-qty .icon-btn{width:34px;height:34px}
+.fi-kcal{display:flex;align-items:center;gap:6px;grid-column:1}
+.kcal-in{width:80px;height:38px;border:0;border-radius:10px;background:var(--soft);text-align:center;font:700 16px var(--num)}
+.food-total{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:10px;border-top:2px solid var(--ink)}
+.food-total b{font:700 22px var(--num)}.food-total span{font-size:13px;color:var(--muted)}
+.slot-pick{margin:10px 0}
+.food-note{background:var(--teal-soft);padding:10px 12px;border-radius:12px}
+.food-q{background:var(--orange-soft);padding:10px 12px;border-radius:12px}
+.food-ta{height:auto;min-height:92px;padding:12px 16px;resize:vertical;font:inherit}
+.food-busy{display:flex;flex-direction:column;align-items:center;gap:10px;padding:20px 0}
+.spinner{width:36px;height:36px;border-radius:50%;border:4px solid var(--soft2);border-top-color:var(--teal);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.food-ideas .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.idea{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.idea b{display:block;font-weight:800}.idea span,.idea small{display:block;font-size:12.5px;color:var(--muted)}
+.week-chart svg{width:100%;height:auto;margin-top:8px}
+.week-chart rect.good{fill:var(--teal)}.week-chart rect.ok{fill:var(--orange)}.week-chart rect.none{fill:var(--soft2)}
+.week-chart text{font-size:10px;fill:var(--muted)}
+.week-chart .target{stroke:var(--ink);stroke-dasharray:4 4;stroke-width:1;opacity:.5}
+.week-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0;text-align:center}
+.week-stats b{display:block;font:700 20px var(--num)}.week-stats span{font-size:12px;color:var(--muted)}
+.noticed{margin:6px 0 0;padding-left:18px}.noticed li{margin:6px 0;font-size:14.5px}
+.batch-row{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.batch-row input{width:22px;height:22px;accent-color:var(--teal)}
+.batch-row b{display:block}.batch-row span{font-size:12.5px;color:var(--muted)}
+.food-today{cursor:pointer}
+@media (max-width:360px){.tab{font-size:10.5px}}
+.macro-bar i.over{background:var(--teal)}
