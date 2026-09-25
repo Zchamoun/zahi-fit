@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "5.1.0";
+const VERSION = "5.2.0";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -135,9 +135,10 @@ function loadPlan(){
     days:Number(p.days), primary:p.primary,
     secondary:Array.isArray(p.secondary) ? p.secondary.filter(x => GOALS[x] && x !== p.primary).slice(0,3) : [],
     duration:[45,60,75,90].includes(Number(p.duration)) ? Number(p.duration) : 75,
-    equipment:EQUIPMENT[p.equipment] ? p.equipment : "gym"
+    equipment:EQUIPMENT[p.equipment] ? p.equipment : "gym",
+    style:STYLES[p.style] ? p.style : "mix"
   };
-  return {days:4, primary:"fat_loss", secondary:["muscle"], duration:75, equipment:"gym"};
+  return {days:4, primary:"fat_loss", secondary:["muscle"], duration:75, equipment:"gym", style:"mix"};
 }
 let plan = loadPlan();
 const library = () => [...PROGRAM.flatMap(w => w.exercises), ...EXTRA];
@@ -197,7 +198,7 @@ const SECONDARY_SLOT = {                       // what each secondary goal adds 
 };
 
 function buildWeek(p = plan, person = personal){
-  const goal = p.primary, eq = POOLS[p.equipment] ? p.equipment : "gym", pools = POOLS[eq];
+  const goal = p.primary, eq = POOLS[p.equipment] ? p.equipment : "gym", pools = poolsFor(eq, p.style);
   const age = person ? person.ageBracket : null, exp = person ? person.experience : "some", focus = focusOf(person);
   const older = age === "50-59" || age === "60+";
   // Names this person should not get (sore areas), and name swaps for age / experience.
@@ -223,6 +224,9 @@ function buildWeek(p = plan, person = personal){
     });
     if(goal === "mobility" && sfocus !== "mobility") recipe.splice(1, 0, ["mobLower","mob"], ["flexUpper","flex"]);
     if(goal === "athletic" && !recipe.some(r => r[1] === "power")) recipe.splice(2, 0, ["power","power"]);
+    // Hyrox & CrossFit style: a power station in lower/full sessions (wall balls, box jumps, thrusters…)
+    if(eq === "gym" && p.style === "functional" && ["lower","full"].includes(sfocus) && p.duration >= 60 && !recipe.some(r => r[1] === "power"))
+      recipe.splice(Math.min(2, recipe.length), 0, ["power","power"]);
     // focus emphasis (auto = by sex); short sessions keep only the first extra slot
     const extras = ((FOCUS_SLOTS[focus] || {})[sfocus] || []).slice(0, p.duration <= 60 ? 1 : 2);
     extras.forEach(add => { const at = add[1] === "mob" ? 1 : recipe.findIndex(r => r[1] === "core"); recipe.splice(Math.max(0, at), 0, add); });
@@ -244,12 +248,15 @@ function buildWeek(p = plan, person = personal){
       recipe.splice(Math.max(0, recipe.findIndex(r => r[1] === "core")), 0, extra);
       recipe.push([sfocus === "upper" ? "flexUpper" : "flexLower", "flex"]);
     }
-    // keep sessions realistic for the time: trim the lowest-priority extras first
-    const CAP = {45:6, 60:8, 75:10, 90:12}[p.duration] || 10;
-    const trimOrder = ["finisher","acc","mob","flex","balance","core","power"];
+    // Warm-up and cool-down are built separately below, so take the old mobility/stretch slots out of the main part
+    // (a mobility-day session keeps its own drills; it still gets the warm-up cardio and cool-down).
+    if(sfocus !== "mobility") recipe = recipe.filter(r => r[1] !== "mob" && r[1] !== "flex");
+    // keep the main part realistic for the time: trim the lowest-priority extras first
+    const CAP = {45:4, 60:6, 75:8, 90:10}[p.duration] || 8;
+    const trimOrder = ["finisher","acc","balance","core","power"];
     for(const role of trimOrder){
-      const min = role === "acc" ? 1 : role === "power" && goal === "athletic" ? 1 : ["mob","flex","core"].includes(role) ? 1 : 0;
-      while(recipe.length > CAP && recipe.filter(r => r[1] === role).length > min) drop(role);
+      const min = role === "acc" ? 1 : role === "power" && goal === "athletic" ? 1 : role === "core" ? 1 : 0;
+      while(recipe.filter(r => r[1] !== "mob" && r[1] !== "flex").length > CAP && recipe.filter(r => r[1] === role).length > min) drop(role);
     }
     // pick exercises: rotate within each pool, never repeat within a session
     const used = new Set(), exercises = [];
@@ -259,7 +266,8 @@ function buildWeek(p = plan, person = personal){
       const pool = pools[key] || [];
       let pick = null;
       for(let t = 0; t < pool.length && !pick; t++){
-        const n0 = pool[(rot + k + t) % pool.length], n = swaps[n0] || n0;
+        const spread = ["interval","power","circuit","durability","steady"].includes(key) ? idx : 0;   // vary cardio/power across the week
+        const n0 = pool[(rot + k + t + spread) % pool.length], n = swaps[n0] || n0;
         if(ok(n)) pick = n; else if(ok(n0) && !swaps[n0]) pick = n0;
       }
       if(!pick) pick = (SAFE_BY_KEY[key] || []).find(ok) || null;       // gentler option when everything is excluded
@@ -268,12 +276,34 @@ function buildWeek(p = plan, person = personal){
       used.add(pick);
       exercises.push(prescribe(clone(findEx(pick)), role === "balance" ? "core" : role, goal, eq, {extraMainSet, condLonger, age, exp, duration:p.duration}));
     });
+    // ---- warm-up first: easy cardio + drills matched to the session ----
+    const [baseDrills, baseStretch] = WARM_COOL[p.duration] || [2, 3];
+    const nDrills = baseDrills + (older ? 1 : 0) + (goal === "mobility" || p.secondary.includes("mobility") ? 1 : 0);
+    const nStretch = baseStretch + (goal === "mobility" ? 2 : p.secondary.includes("mobility") ? 1 : 0);
+    const okW = n => n && !used.has(n) && !avoid.has(n) && findEx(n) && (eq !== "bodyweight" || n !== "Band Shoulder Dislocates");
+    const rotPick = (list, count, offset) => { const out = []; for(let t = 0; t < list.length && out.length < count; t++){ const n0 = list[(offset + t) % list.length], n = swaps[n0] || n0; if(okW(n)){ out.push(n); used.add(n); } } return out; };
+    const warm = [];
+    if(okW("Easy Cardio Warm-up")){ used.add("Easy Cardio Warm-up"); warm.push(clone(findEx("Easy Cardio Warm-up"))); }
+    const haveDrills = exercises.filter(x => x.block === "Mobility").length;
+    rotPick(WARMUP_DRILLS[sfocus] || WARMUP_DRILLS.full, Math.max(0, nDrills - haveDrills), rot * 2 + idx).forEach(n => warm.push(clone(findEx(n))));
+    // ---- cool-down last: stretches for the muscles just trained, 30 s a side (45 s on mobility goals) ----
+    const cool = rotPick(COOLDOWN_STRETCHES[sfocus] || COOLDOWN_STRETCHES.full, nStretch, rot * 3 + idx).map(n => {
+      const x = clone(findEx(n)); x.sets = goal === "mobility" ? 2 : 1; x.rest = 0;
+      if(goal !== "mobility" && /45 sec/.test(x.reps)) x.reps = x.reps.replace("45 sec", "30 sec");
+      if(/^2 × /.test(String(x.reps))) x.reps = String(x.reps).replace(/^2 × /, "");
+      return x;
+    });
+    warm.forEach(x => { x.warmup = true; x.rest = 0; x.sets = 1; });
+    cool.forEach(x => { x.cooldown = true; });
+    const mainPart = exercises.filter(x => x.block !== "Flexibility");
+    const oldStretches = exercises.filter(x => x.block === "Flexibility");      // mobility-day sessions keep theirs
+    exercises.length = 0; exercises.push(...warm, ...mainPart, ...oldStretches, ...cool);
     const letter = String.fromCharCode(65 + idx);
     const secondary = p.secondary.map(x => GOALS[x]).join(", ");
     return {
       name:`${letter} — ${TITLES[sfocus][goal]}`,
       duration:p.duration,
-      focus:`${FOCUS_TEXT[sfocus]} · ${GOALS[goal]}${secondary ? ` + ${secondary}` : ""} · ${EQUIPMENT[eq]}`,
+      focus:`${FOCUS_TEXT[sfocus]} · ${GOALS[goal]}${secondary ? ` + ${secondary}` : ""} · ${EQUIPMENT[eq]}${eq === "gym" && p.style === "functional" ? " · Hyrox & CrossFit" : ""}`,
       exercises
     };
   });
@@ -286,7 +316,9 @@ function prescribe(x, role, goal, eq, {extraMainSet, condLonger, age, exp, durat
   if(role === "easy"){ x.sets = 1; x.reps = STEADY_MIN.mobility; return x; }
   if(x.block === "Conditioning"){
     if(/Steady|Walk/.test(x.n)){ x.sets = 1; x.reps = STEADY_MIN[goal] || (condLonger ? "25–30 min" : "20–25 min"); if(condLonger && goal !== "endurance") x.reps = "25–35 min"; if(duration === 45) x.reps = "12–15 min"; return x; }
-    if(role === "circuit"){ x.sets = rx[0] + (condLonger ? 1 : 0); x.rest = rx[2]; return x; }
+    if(role === "circuit"){ x.sets = rx[0] + (condLonger ? 1 : 0); x.rest = rx[2];
+      if(/Hyrox/.test(x.n)) x.sets = Math.min(x.sets, goal === "endurance" ? 4 : 3);   // each round is ~8–10 min
+      return x; }
     x.sets = role === "finisher" ? 4 : rx[0] + (condLonger ? 2 : 0);
     if(duration === 45) x.sets = Math.min(x.sets, 5);
     return x;
@@ -297,6 +329,7 @@ function prescribe(x, role, goal, eq, {extraMainSet, condLonger, age, exp, durat
   if(exp === "new" && ["main","main2","acc"].includes(role)) x.sets = Math.max(2, x.sets - 1);   // beginners: less volume
   if(exp === "experienced" && isMain) x.sets += 1;                                                  // trained: more work on key lifts
   x.rest = x.bw ? Math.min(rx[2], 90) : rx[2];          // no heavy loads, so shorter rests
+  if(["Power Clean","Back Squat","Trap Bar Deadlift","Deadlift","Front Squat","Overhead Press","Thruster"].includes(x.n)) x.rest = Math.max(x.rest, 90);   // heavy barbell work needs real rest
   if(age === "60+" && !x.bw) x.rest += 15;              // a little more recovery between sets
   if(rx[1] && !hold){
     let reps = x.bw ? (role === "power" ? "8–10" : (RX_BW[goal][role] || RX_BW[goal].acc)) : rx[1];
@@ -308,7 +341,7 @@ function prescribe(x, role, goal, eq, {extraMainSet, condLonger, age, exp, durat
   }
   return x;
 }
-const REP_CAPS = {"Deadlift":"8", "Front Squat":"10", "Bench Press":"10", "Kettlebell Deadlift":"12", "Pike Push-up":"6–12",
+const REP_CAPS = {...REP_CAPS_ADD, "Deadlift":"8", "Front Squat":"10", "Bench Press":"10", "Kettlebell Deadlift":"12", "Pike Push-up":"6–12",
   "Jump Squat":"8–10", "Inverted Row":"8–15", "Chair Dips":"8–15", "Single-Leg Romanian Deadlift":"8–12"};
 
 /* ---------- personal profile (from v2.7) ---------- */
@@ -397,15 +430,19 @@ function adaptWorkout(w, r){
   const p = readinessProfile(r);
   const all = clone(w.exercises);
   let keep = all.slice();
+  // Warm-up (easy cardio + drills) and cool-down stretches always stay; short days keep fewer of them.
+  const warmMax = r.time <= 45 ? 2 : r.time <= 60 ? 2 : r.time === 75 ? 3 : 99;
+  const coolMax = r.time <= 60 ? 2 : r.time === 75 ? 3 : 99;
+  const warmKeep = keep.filter(x => x.block === "Mobility").slice(0, warmMax);
+  const coolKeep = keep.filter(x => x.block === "Flexibility").slice(0, coolMax);
   if(r.time <= 60){
-    const pick = [keep.find(x => x.block === "Mobility"), keep.find(x => x.block === "Strength"),
+    const pick = [keep.find(x => x.block === "Strength"),
       keep.find(x => ["Hypertrophy","Power"].includes(x.block)), keep.find(x => x.block === "Durability"),
-      keep.find(x => x.block === "Conditioning"), keep.find(x => x.block === "Flexibility")].filter(Boolean);
+      keep.find(x => x.block === "Conditioning")].filter(Boolean);
     if(r.time === 60){ const second = keep.find(x => x.block === "Strength" && !pick.includes(x)); if(second) pick.push(second); }
-    keep = keep.filter(x => pick.includes(x));
-  }else if(r.time === 75){
-    let m = false, f = false;
-    keep = keep.filter(x => { if(x.block === "Mobility"){ if(m) return false; m = true; } if(x.block === "Flexibility"){ if(f) return false; f = true; } return true; });
+    keep = keep.filter(x => pick.includes(x) || warmKeep.includes(x) || coolKeep.includes(x));
+  }else{
+    keep = keep.filter(x => (x.block !== "Mobility" || warmKeep.includes(x)) && (x.block !== "Flexibility" || coolKeep.includes(x)));
   }
   if(p.tier === "easy" || p.tier === "recovery"){ let gone = false; keep = keep.filter(x => { if(!gone && x.block === "Hypertrophy"){ gone = true; return false; } return true; }); }
   if(p.tier === "recovery") keep = keep.filter(x => x.block !== "Power");            // no jumping or explosive work
@@ -425,7 +462,7 @@ function trackingType(ex){
     if(HOLD_EXERCISES.has(ex.n)) return "hold";
     return ex.block === "Conditioning" ? "bwCond" : "bwReps";
   }
-  if(ex.block === "Conditioning"){ if(/Bike/i.test(ex.n)) return "bike"; if(/StairMaster/i.test(ex.n)) return "stair"; return "conditioning"; }
+  if(ex.block === "Conditioning"){ if(/Bike/i.test(ex.n)) return "bike"; if(/StairMaster/i.test(ex.n)) return "stair"; if(/Treadmill/i.test(ex.n)) return "treadmill"; return "conditioning"; }
   if(/Carry/i.test(ex.n)) return "carry";
   return "loadReps";
 }
@@ -435,7 +472,7 @@ function prevLine(ex, prev){
   const rows = prev.sets.map((s,i) => {
     if(prev.done && prev.done[i] === false) return null;
     if(["repsTime","bwReps","hold","bwCond"].includes(t)) return s.r || null;
-    if(t === "bike" || t === "stair") return s.w || s.r ? `${s.w ? (t==="bike"?"res ":"lvl ")+s.w : ""}${s.w&&s.r?" · ":""}${s.r||""}` : null;
+    if(t === "bike" || t === "stair" || t === "treadmill") return s.w || s.r ? `${s.w ? (t==="bike"?"res ":t==="treadmill"?"":"lvl ")+s.w+(t==="treadmill"?" km/h":"") : ""}${s.w&&s.r?" · ":""}${s.r||""}` : null;
     if(t === "carry") return s.w || s.r ? `${s.w||"–"} kg · ${s.r||"–"}` : null;
     return s.w || s.r ? `${s.w||"–"}×${s.r||"–"}` : null;
   }).filter(Boolean);
@@ -529,7 +566,7 @@ function todayTarget(ex){
     const ver = firstTime ? (de ? "Starte mit den Händen auf einer Bank, wenn nötig." : "Start with hands on a bench if needed.") : "";
     return {text:`${sets} × ${reps}${restTxt}`, why:[TIER, add, ver].filter(Boolean).join(" ")};
   }
-  if(["bike","stair","conditioning","bwCond"].includes(t)){
+  if(["bike","stair","treadmill","conditioning","bwCond"].includes(t)){
     const eff = tier === "push" ? (de ? "Harte Phasen bei RPE 8." : "Hard efforts at RPE 8.") : tier === "easy" ? (de ? "Harte Phasen nur bei RPE 6." : "Hard efforts only at RPE 6.")
       : tier === "recovery" ? (de ? "Locker bei RPE 5 – du solltest reden können." : "Easy at RPE 5 — you should be able to talk.") : (de ? "Harte Phasen bei RPE 7." : "Hard efforts at RPE 7.");
     return {text:`${sets} × ${reps}${restTxt}`, why:[TIER, eff].filter(Boolean).join(" ")};
@@ -638,6 +675,8 @@ const exCue = ex => isDE() && DE.ex[ex.n] ? DE.ex[ex.n][0] : ex.cue;
 const exHow = ex => isDE() && DE.ex[ex.n] ? DE.ex[ex.n][1] : (ex.how || []);
 const exMistakes = ex => isDE() && DE.ex[ex.n] ? DE.ex[ex.n][2] : (ex.mistakes || []);
 const blockName = b => isDE() ? (DE.blocks[b] || b) : b;
+/* Warm-up and cool-down items keep their Mobility/Flexibility colours but are labelled by their role. */
+const exBlockName = ex => ex.warmup ? (isDE() ? "Aufwärmen" : "Warm-up") : ex.cooldown ? (isDE() ? "Cool-down" : "Cool-down") : blockName(ex.block);
 const repsText = r => isDE() ? DE.reps(r) : r;
 const stepsOf = fam => (isDE() ? (DE.steps[fam] || DE.steps.circuit) : (STEPS[fam] || STEPS.circuit));
 const feelOf = fam => isDE() ? (DE.feel[fam] || "Die Zielmuskeln arbeiten kontrolliert und schmerzfrei.") : ((typeof FEEL_EXTRA !== "undefined" && FEEL_EXTRA[fam]) || feelFor(fam));
@@ -847,15 +886,296 @@ const curEx = () => state && state.exercises[state.exerciseIndex];
 function completion(){ let t = 0, d = 0; state.exercises.forEach(ex => ex.sets.forEach(s => { t++; if(s.done || ex.skipped) d++; })); return t ? Math.round(d/t*100) : 0; }
 const doneSets = () => state ? state.exercises.reduce((a,ex) => a + ex.sets.filter(s => s.done).length, 0) : 0;
 
-function startWorkout(index, r){
-  const w = workouts[index], a = adaptWorkout(w, r);
+/* ---------- extra session (outside the plan) ----------
+   "I feel like training again today": a quick check-in, then recommendations built from what you already
+   did today, your energy, soreness and time — or any session from your plan. Never moves the plan forward. */
+const trainedTodayRecs = () => getHistory().filter(x => dayKey(x.date) === dayKey());
+function focusOfName(n){ n = String(n); return /Lower/i.test(n) ? "lower" : /Upper/i.test(n) ? "upper" : /Mobility|Recovery|Flow/i.test(n) ? "mobility" : /Engine|Conditioning|Cardio|Burn\b/i.test(n) && !/Body/i.test(n) ? "engine" : /Full/i.test(n) ? "full" : "other"; }
+function extraOptions(r){
+  const eq = POOLS[plan.equipment] ? plan.equipment : "gym", pools = poolsFor(eq, plan.style);
+  const avoid = new Set(((personal && personal.areas) || []).flatMap(a => AVOID_BY_AREA[a] || []));
+  const swaps = {...(EXPERIENCE_SWAPS[(personal || {}).experience] || {}), ...(AGE_SWAPS[(personal || {}).ageBracket] || {})};
+  const ok = n => n && findEx(n) && !avoid.has(n);
+  const pickFrom = (list, count, used = new Set()) => { const out = []; for(const n0 of list){ const n = swaps[n0] || n0; if(out.length >= count) break; if(ok(n) && !used.has(n)){ out.push(n); used.add(n); } } return out; };
+  const done = trainedTodayRecs(), didFoci = new Set(done.map(x => focusOfName(x.workout)));
+  const E = r.energy, S = r.soreness, T = r.time, fresh = E >= 4 && S <= 2, tired = E <= 2 || S >= 4;
+  const w = foodTargets().weight, kcalMin = k => Math.round(k * w / 80);
+  const ex = (n, o = {}) => { const x = clone(findEx(n)); Object.assign(x, o); return x; };
+  const warm = (min = 3) => ex("Easy Cardio Warm-up", {sets:1, reps:`${min} min easy`, rest:0, warmup:true});
+  const stretchesFor = (focus, count, used) => pickFrom(COOLDOWN_STRETCHES[focus] || COOLDOWN_STRETCHES.full, count, used).map(n => ex(n, {sets:1, rest:0, cooldown:true, reps:String(findEx(n).reps).replace("45 sec", "30 sec").replace(/^2 × /, "")}));
+  const opts = [];
+  const bal = balances()[dayKey()], balMin = bal && bal.minutes && !bal.done && !bal.removed ? bal.minutes : 0;
+  // 1) cardio burn
+  {
+    const main = Math.max(8, T - 7), hard = !tired && E >= 3;
+    const machines = eq === "bodyweight" ? (hard ? ["High-Knee Intervals","Burpee Intervals"] : ["Brisk Walk or Easy Jog"])
+      : hard ? ["Bike Intervals","Treadmill Intervals","Rowing Intervals","StairMaster Intervals","SkiErg Intervals"] : ["Bike Steady Ride","Treadmill Incline Walk","StairMaster Steady State"];
+    const m = pickFrom(machines.slice(new Date().getDay() % machines.length).concat(machines), 1)[0] || (eq === "bodyweight" ? "Brisk Walk or Easy Jog" : "Bike Steady Ride");
+    const x = ex(m);
+    if(/Intervals/.test(m)){ const p = timerPlan(x); const per = p && p.work ? (p.work + p.rest) : 180; x.sets = Math.max(3, Math.floor(main * 60 / per)); }
+    else { x.sets = 1; x.reps = `${Math.max(balMin, main)} min steady`; }
+    const used = new Set([m]);
+    opts.push({kind:"cardio", title:hard ? "Cardio intervals" : "Easy cardio burn", emoji:"🔥",
+      why:balMin ? `Also covers today's ${balMin}-min balance cardio.` : hard ? "You've got energy — a short interval burn." : "Easy on the body, still burns.",
+      minutes:T, kcal:kcalMin((hard ? 8 : 6) * main), workout:{name:`Extra — ${hard ? "Cardio Intervals" : "Cardio Burn"}`, exercises:[warm(3), x, ...stretchesFor("engine", 2, used)]}});
+  }
+  // 2) mobility & recovery
+  {
+    const used = new Set(), drills = pickFrom(WARMUP_DRILLS.mobility, T >= 30 ? 3 : 2, used).map(n => ex(n, {sets:1, rest:0}));
+    const st = stretchesFor("mobility", T >= 45 ? 6 : T >= 30 ? 5 : 3, used);
+    opts.push({kind:"recovery", title:"Mobility & recovery", emoji:"🧘", why:tired ? "Sore or low on energy — this helps you recover for the next session." : "Loosen up and recover — good any evening.",
+      minutes:T, kcal:kcalMin(3 * T), workout:{name:"Extra — Mobility & Recovery", exercises:[warm(T >= 30 ? 5 : 3), ...drills, ...st]}});
+  }
+  // 3) core
+  {
+    const used = new Set(), core = pickFrom(["Plank","Dead Bug","Side Plank","Pallof Press","Single-Leg Glute Bridge","Prone Y-T-W Raise"].filter(n => eq === "gym" || n !== "Pallof Press"), T >= 30 ? 4 : 3, used)
+      .map(n => ex(n, {sets:3, rest:30}));
+    opts.push({kind:"core", title:"Core & abs", emoji:"🎯", why:"Short, no heavy loading — fits after a full day.", minutes:Math.min(T, 25), kcal:kcalMin(4 * Math.min(T, 25)),
+      workout:{name:"Extra — Core", exercises:[warm(3), ...core, ...stretchesFor("full", 1, used)]}});
+  }
+  // 4) the other half of the body (only when fresh and there's time)
+  const trainedLower = didFoci.has("lower"), trainedUpper = didFoci.has("upper");
+  if(fresh && T >= 30 && (trainedLower || trainedUpper || !done.length)){
+    const upper = trainedLower || (!trainedUpper && new Date().getHours() >= 12);
+    const keys = upper ? ["pushH","pullH","pushV","pullV"] : ["squat","hinge","lunge","glute"];
+    const used = new Set(), mains = keys.map(k => pickFrom(pools[k] || [], 1, used)[0]).filter(Boolean).slice(0, T >= 45 ? 4 : 3)
+      .map(n => ex(n, {sets:3, reps:findEx(n).bw ? "10–15" : "10", rest:75}));
+    if(mains.length >= 2) opts.push({kind:"strength", title:upper ? "Upper-body top-up" : "Lower-body top-up", emoji:"💪",
+      why:trainedLower ? "You trained legs earlier — this works the upper body instead." : trainedUpper ? "You trained upper body earlier — this works the legs instead." : "A short strength top-up.",
+      minutes:T, kcal:kcalMin(5.5 * T), workout:{name:`Extra — ${upper ? "Upper" : "Lower"}-Body Top-up`, exercises:[warm(3), ...pickFrom(WARMUP_DRILLS[upper ? "upper" : "lower"], 1, used).map(n => ex(n, {sets:1, rest:0, warmup:true})), ...mains, ...stretchesFor(upper ? "upper" : "lower", 2, used)]}});
+  }
+  // 5) conditioning circuit (gym, lots of energy)
+  if(eq === "gym" && fresh && T >= 25 && !tired){
+    const c = pickFrom(plan.style === "classic" ? ["CrossFit Engine Circuit"] : ["Hyrox Station Circuit","CrossFit Engine Circuit"], 1)[0];
+    if(c){ const used = new Set([c]); opts.push({kind:"conditioning", title:"Conditioning circuit", emoji:"⚡", why:"High energy? A short race-style circuit.", minutes:T, kcal:kcalMin(9 * (T - 8)),
+      workout:{name:"Extra — Conditioning", exercises:[warm(4), ex(c, {sets:2, rest:120}), ...stretchesFor("engine", 2, used)]}}); }
+  }
+  // ranking
+  const g = plan.primary, order = tired ? ["recovery","cardio","core"]
+    : ["fat_loss","endurance"].includes(g) ? ["cardio","conditioning","core","strength","recovery"]
+    : ["muscle","strength"].includes(g) ? ["strength","core","cardio","recovery","conditioning"]
+    : g === "athletic" ? ["conditioning","strength","cardio","core","recovery"] : ["recovery","core","cardio","strength","conditioning"];
+  if(balMin && !tired) order.unshift("cardio");
+  return [...new Set(order)].map(k => opts.find(o => o.kind === k)).filter(Boolean);
+}
+function renderExtra(m){
+  const r = {energy:null, soreness:null, time:30}, box = h("div");
+  const done = trainedTodayRecs();
+  m.append(h("div", {class:"ov-top"}, h("button", {class:"icon-btn plain", "aria-label":"Back", onclick:() => go("today")}, "←"), h("div", {class:"t"}, h("b", null, "Extra session"), h("span", {class:"tiny muted"}, "Outside your plan — your next planned session stays the same"))),
+    done.length ? h("p", {class:"small food-note"}, `Already today: ${done.map(x => splitName(x.workout).title || x.workout).join(", ")}. Nice — let's pick something that fits on top.`) : null);
+  const scale = (key, vals, labels, cls) => { const g0 = h("div", {class:"scale" + (cls ? " " + cls : ""), role:"group"});
+    vals.forEach((v,i) => { const b = h("button", {"aria-pressed":String(r[key] === v), onclick:() => { r[key] = v; g0.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); paint(); }}, v, labels[i] ? h("small", null, labels[i]) : null); g0.append(b); });
+    return g0; };
+  m.append(h("h3", {class:"section"}, "Energy right now"), scale("energy", [1,2,3,4,5], ["Flat","","","","Great"]),
+    h("h3", {class:"section"}, "Soreness"), scale("soreness", [1,2,3,4,5], ["Fresh","","","","Very"]),
+    h("h3", {class:"section"}, "Time you have"), scale("time", [15,20,30,45,60], ["min","min","min","min","min"], "five"), box);
+  function paint(){
+    if(!r.energy || !r.soreness){ box.replaceChildren(h("p", {class:"small muted section"}, "Answer the two questions to see what fits.")); return; }
+    const opts = extraOptions(r);
+    box.replaceChildren(h("h2", {class:"section"}, "Recommended for you"),
+      ...opts.map((o, i) => h("button", {class:"extra-opt" + (i === 0 ? " top" : ""), onclick:() => startWorkout(null, r, {workout:o.workout, kind:o.kind, noAdapt:true})},
+        h("span", {class:"eo-emoji"}, o.emoji),
+        h("div", null, h("b", null, o.title, i === 0 ? h("em", null, "Best fit") : null), h("span", null, `${o.minutes} min · ~${o.kcal} kcal · ${o.workout.exercises.length} exercises`), h("small", null, o.why),
+          h("small", {class:"eo-list"}, o.workout.exercises.map(x => exName(x.n)).join(" · "))),
+        h("span", {class:"eo-go"}, "▶"))),
+      h("h2", {class:"section"}, "Or pick a session from your plan"),
+      h("div", {class:"tiles"}, workouts.map((w, k) => { const n = splitName(w.name), same = done.some(x => focusOfName(x.workout) === focusOfName(w.name) && focusOfName(w.name) !== "other");
+        return h("button", {class:"tile", "data-tone":k % 4, onclick:async () => {
+          if(same && !(await ask("Same muscles again?", `You already did a ${focusOfName(w.name)}-body session today. Training the same muscles twice in a day slows recovery — a different option may be better.`, "Do it anyway"))) return;
+          startWorkout(k, r, {workout:{...w, name:`Extra — ${n.title}`}, kind:"plan"}); }},
+          h("span", {class:"l"}, n.letter), h("b", null, n.title), h("span", null, same ? "⚠ trained today" : `${w.exercises.length} exercises`)); })),
+      h("p", {class:"tiny muted section center"}, "Extra sessions count in your history and calories burned, but don't change your plan's next session."));
+  }
+  paint();
+}
+
+function startWorkout(index, r, custom){
+  const w = custom ? custom.workout : workouts[index], a = custom && custom.noAdapt ? {profile:readinessProfile(r), keep:clone(w.exercises)} : adaptWorkout(w, r);
   state = {
-    workoutIndex:index, workoutName:w.name, startTime:Date.now(), exerciseIndex:0,
+    workoutIndex:custom ? null : index, workoutName:w.name, startTime:Date.now(), exerciseIndex:0,
+    ...(custom ? {extra:true, extraKind:custom.kind || "plan"} : {}),
     readiness:clone(r),
     adaptation:{mode:a.profile.mode, tier:a.profile.tier, label:a.profile.label, message:a.profile.message, targetMinutes:r.time},
     exercises:a.keep.map(ex => ({...ex, skipped:false, rpe:null, sets:Array.from({length:ex.sets}, () => ({w:"", r:"", done:false}))}))
   };
   persist(); applyBalance(true); unlockAudio(); go("workout");
+}
+
+/* ---------- interval timer ----------
+   Reads the exercise target ("1 min hard / 2 min easy", "30 s on / 30 s off", "500 m hard / 2 min easy",
+   "25–30 min", "30 sec/side") and runs it: big countdown, 10-second switch warning, 3-2-1 beeps,
+   a voice cue and vibration at every switch, screen kept awake, rounds ticked off in the log.
+   Timestamp-based, so it stays correct if the phone is locked; it resumes after a reload. */
+function timerPlan(ex){
+  const r = String(ex.reps).toLowerCase(), rounds = Math.max(1, Array.isArray(ex.sets) ? ex.sets.length : Number(ex.sets) || 1);
+  const sec = (v, u) => /min/.test(u) ? v * 60 : v;
+  let m = r.match(/(\d+)\s*(s|sec|min)\w*\s*(hard|on|work|fast)\s*\/\s*(\d+)\s*(s|sec|min)\w*\s*(easy|off|march|rest)/);
+  if(m) return {kind:"intervals", rounds, work:sec(+m[1], m[2]), rest:sec(+m[4], m[5]), easyWord:m[6] === "march" ? "easy" : m[6]};
+  m = r.match(/(\d+)\s*m\s*hard\s*\/\s*(\d+)\s*(s|sec|min)\w*\s*easy/);
+  if(m) return {kind:"intervals", rounds, work:null, dist:+m[1], rest:sec(+m[2], m[3]), easyWord:"easy"};
+  m = r.match(/^(\d+)(?:\s*[–-]\s*\d+)?\s*min/);
+  if(m) return {kind:"steady", rounds, work:+m[1] * 60};
+  m = r.match(/(\d+)(?:\s*[–-]\s*\d+)?\s*sec/);
+  if(m) return {kind:"hold", rounds, work:+m[1], perSide:/side/.test(r), rest:ex.rest || 0};
+  if(ex.block === "Conditioning") return {kind:"stopwatch", rounds};
+  return null;
+}
+const mmt = t => { t = Math.max(0, Math.round(t)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };   // 1:05 style
+function timerSummary(p){
+  const de = isDE();
+  if(p.kind === "intervals") return `${p.rounds} × ${p.work ? mmt(p.work) : `${p.dist} m`} ${de ? "hart" : "hard"} / ${mmt(p.rest)} ${de ? "locker" : "easy"}`;
+  if(p.kind === "steady") return `${p.rounds > 1 ? p.rounds + " × " : ""}${mmt(p.work)} ${de ? "gleichmäßig" : "steady"}`;
+  if(p.kind === "hold") return `${p.rounds} × ${mmt(p.work)}${p.perSide ? (de ? " je Seite" : " each side") : ""}`;
+  return de ? "Stoppuhr pro Runde" : "Stopwatch per round";
+}
+function buildPhases(p){
+  const out = [];
+  for(let i = 0; i < p.rounds; i++){
+    if(p.kind === "intervals"){
+      out.push({type:"hard", sec:p.work, dist:p.dist || null, round:i});
+      if(i < p.rounds - 1) out.push({type:"easy", sec:p.rest, round:i});
+    }else if(p.kind === "steady") out.push({type:"steady", sec:p.work, round:i});
+    else if(p.kind === "hold"){
+      if(p.perSide){ out.push({type:"left", sec:p.work, round:i}); out.push({type:"right", sec:p.work, round:i}); }
+      else out.push({type:"hold", sec:p.work, round:i});
+      if(i < p.rounds - 1 && p.rest) out.push({type:"rest", sec:p.rest, round:i});
+    }else out.push({type:"round", sec:null, round:i});
+  }
+  return out;
+}
+const PHASE_WORD = {
+  en:{hard:"HARD", easy:"EASY", steady:"STEADY", hold:"HOLD", left:"LEFT SIDE", right:"RIGHT SIDE", rest:"REST", round:"ROUND", ready:"GET READY"},
+  de:{hard:"HART", easy:"LOCKER", steady:"GLEICHMÄSSIG", hold:"HALTEN", left:"LINKE SEITE", right:"RECHTE SEITE", rest:"PAUSE", round:"RUNDE", ready:"BEREIT MACHEN"}
+};
+const TIMER_SAY = {
+  en:{hard:"Go hard!", easy:"Easy now. Recover.", steady:"Start steady. Nice and even.", hold:"Hold.", left:"Left side. Hold.", right:"Switch sides.", rest:"Rest.",
+      warn:n => ({hard:"Ten seconds. Get ready to go easy.", easy:"Ten seconds. Get ready to go hard.", rest:"Ten seconds. Get ready.", left:"Ten seconds, then switch sides.", steady:"Ten seconds left.", hold:"Ten seconds left.", right:"Ten seconds left."}[n] || "Ten seconds."),
+      last:"Last round. Give it everything.", done:"Done. Great work!", ready:"Get ready. Three, two, one."},
+  de:{hard:"Jetzt hart!", easy:"Locker. Erholen.", steady:"Gleichmäßig starten.", hold:"Halten.", left:"Linke Seite. Halten.", right:"Seite wechseln.", rest:"Pause.",
+      warn:n => ({hard:"Noch zehn Sekunden, dann locker.", easy:"Noch zehn Sekunden, dann wieder hart.", rest:"Noch zehn Sekunden. Mach dich bereit.", left:"Noch zehn Sekunden, dann Seite wechseln.", steady:"Noch zehn Sekunden.", hold:"Noch zehn Sekunden.", right:"Noch zehn Sekunden."}[n] || "Noch zehn Sekunden."),
+      last:"Letzte Runde. Gib alles.", done:"Geschafft. Super gemacht!", ready:"Mach dich bereit. Drei, zwei, eins."}
+};
+let tmTick = null, wakeLock = null;
+async function keepAwake(on){
+  try{ if(on && "wakeLock" in navigator && !wakeLock){ wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener?.("release", () => { wakeLock = null; }); }
+       if(!on && wakeLock){ await wakeLock.release(); wakeLock = null; } }catch{}
+}
+document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible" && state && state.timer && state.timer.running) keepAwake(true); });
+const tSay = key => { if(voice.mode !== "off") speak(TIMER_SAY[voice.lang][key] || TIMER_SAY.en[key], {force:true}); };
+function openTimer(exIndex){
+  if(!state) return;
+  const ex = state.exercises[exIndex], plan0 = timerPlan(ex); if(!plan0) return;
+  let tm = state.timer && state.timer.ex === exIndex ? state.timer : null;
+  const cfg = tm ? tm.cfg : {...plan0};
+  const inner = h("div", {class:"app timer-app"});
+  const ov = h("div", {class:"overlay timer-ov", role:"dialog", "aria-modal":"true", "aria-label":"Interval timer"}, inner);
+  const de = isDE(), W = PHASE_WORD[voice.lang] || PHASE_WORD.en;
+  const close = async () => {
+    if(tm && tm.running && !(await ask(de ? "Timer stoppen?" : "Stop the timer?", de ? "Erledigte Runden bleiben gespeichert." : "Rounds you've finished stay logged.", de ? "Stoppen" : "Stop"))) return;
+    clearInterval(tmTick); tmTick = null; keepAwake(false); if(state){ delete state.timer; persist(); } ov.remove(); if(view === "workout") paintExercise();
+  };
+  const markRound = round => {
+    const set = ex.sets[round]; if(!set || set.done) return;
+    set.done = true;
+    if(!set.r) set.r = cfg.kind === "intervals" ? (cfg.work ? mmt(cfg.work) : `${cfg.dist} m`) : cfg.kind === "stopwatch" ? mmt((Date.now() - tm.phaseStart) / 1000) : mmt(cfg.work);
+    persist();
+  };
+  const finish = () => {
+    clearInterval(tmTick); tmTick = null; keepAwake(false); cue.end(); tSay("done");
+    tm.running = false; tm.finished = true; persist(); paint();
+  };
+  const startPhase = i => {
+    tm.i = i; tm.phaseStart = Date.now(); tm.flags = {}; tm.paused = null;
+    if(!tm.phases[i]){ finish(); return; }
+    const ph = tm.phases[i]; if(!ph){ finish(); return; }
+    cue.start(); if(navigator.vibrate) navigator.vibrate(ph.type === "hard" ? [200, 80, 200] : 200);
+    const lastRound = ph.round === cfg.rounds - 1 && cfg.rounds > 2 && (ph.type === "hard" || ph.type === "hold" || ph.type === "left");
+    tSay(lastRound ? "last" : ph.type);
+    persist(); paint();
+  };
+  const endPhase = () => {
+    const ph = tm.phases[tm.i];
+    if(!tm.phases[tm.i + 1] || tm.phases[tm.i + 1].round !== ph.round) markRound(ph.round);   // a round is done when its last phase ends
+    startPhase(tm.i + 1);
+  };
+  const tick = () => {
+    if(!tm || !tm.running || tm.paused != null || tm.countIn) return;
+    const ph = tm.phases[tm.i]; if(!ph) return;
+    const el = (Date.now() - tm.phaseStart) / 1000;
+    if(ph.sec){
+      const left = ph.sec - el;
+      if(left <= 10.5 && left > 3.5 && ph.sec >= 20 && !tm.flags.w){ tm.flags.w = 1; cue.warn(); if(voice.mode !== "off") speak(TIMER_SAY[voice.lang].warn(ph.type), {force:true}); }
+      [3, 2, 1].forEach(n => { if(left <= n + 0.05 && left > n - 0.95 && !tm.flags["b" + n]){ tm.flags["b" + n] = 1; beep(880, .08, .06); } });
+      if(left <= 0){ endPhase(); return; }
+    }
+    paintClock();
+  };
+  const start = () => {
+    unlockAudio();
+    tm = state.timer = {ex:exIndex, cfg, phases:buildPhases(cfg), i:0, phaseStart:Date.now(), running:true, flags:{}};
+    const firstOpen = ex.sets.findIndex(q => !q.done);
+    if(firstOpen > 0){ tm.phases = tm.phases.filter(p => p.round >= firstOpen); }       // continue from the next round not yet done
+    keepAwake(true); tSay("ready");
+    tm.countIn = Date.now() + 3000; persist(); paint();
+    const go1 = setInterval(() => { if(Date.now() >= tm.countIn){ clearInterval(go1); delete tm.countIn; startPhase(0); } else paintClock(); }, 200);
+    clearInterval(tmTick); tmTick = setInterval(tick, 200);
+  };
+  const clock = h("div", {class:"tm-clock"}), bar = h("div", {class:"tm-bar"}, h("i")), sub = h("div", {class:"tm-sub"});
+  function paintClock(){
+    if(!tm) return;
+    if(tm.countIn){ clock.textContent = Math.max(1, Math.ceil((tm.countIn - Date.now()) / 1000)); return; }
+    const ph = tm.phases[tm.i]; if(!ph) return;
+    const el = tm.paused != null ? tm.paused : (Date.now() - tm.phaseStart) / 1000;
+    clock.textContent = ph.sec ? mmt(ph.sec - el) : mmt(el);
+    bar.firstChild.style.width = ph.sec ? `${Math.min(100, 100 * el / ph.sec)}%` : "0%";
+  }
+  function paint(){
+    const setup = !tm || (!tm.running && !tm.finished);
+    const head = h("div", {class:"ov-top"}, h("button", {class:"icon-btn plain", "aria-label":"Close timer", onclick:close}, "←"),
+      h("div", {class:"t"}, h("b", null, exName(ex.n)), h("span", {class:"tiny muted"}, timerSummary(cfg))));
+    if(setup){
+      const adj = (label, key, step, min) => h("div", {class:"tm-adj"}, h("span", null, label),
+        h("button", {class:"icon-btn", "aria-label":`Less ${label}`, onclick:() => { cfg[key] = Math.max(min, cfg[key] - step); paint(); }}, "−"),
+        h("b", null, key === "rounds" ? cfg.rounds : mmt(cfg[key])),
+        h("button", {class:"icon-btn", "aria-label":`More ${label}`, onclick:() => { cfg[key] = cfg[key] + step; paint(); }}, "+"));
+      inner.replaceChildren(head, h("div", {class:"tm-setup"},
+        h("p", {class:"small muted"}, de ? "Stell ein, falls nötig, und tippe auf Start. Du hörst eine Warnung 10 Sekunden vor jedem Wechsel und 3-2-1-Signale." : "Adjust if you like, then tap Start. You'll hear a warning 10 seconds before each switch and 3-2-1 beeps."),
+        cfg.kind === "intervals" && cfg.work ? adj(de ? "Hart" : "Hard", "work", 15, 10) : null,
+        cfg.kind === "intervals" && !cfg.work ? h("p", {class:"small"}, de ? `Harte Phase: ${cfg.dist} m – tippe auf „Fertig“, wenn du sie geschafft hast.` : `Hard part: ${cfg.dist} m — tap "Done" when you've covered it.`) : null,
+        cfg.kind === "intervals" ? adj(de ? "Locker" : "Easy", "rest", 15, 10) : null,
+        cfg.kind === "steady" ? adj(de ? "Dauer" : "Time", "work", 60, 60) : null,
+        cfg.kind === "hold" ? adj(de ? "Halten" : "Hold", "work", 5, 5) : null,
+        cfg.kind !== "steady" ? adj(de ? "Runden" : "Rounds", "rounds", 1, 1) : null,
+        h("button", {class:"btn primary block tm-start", onclick:start}, de ? "▶ Start" : "▶ Start")));
+      return;
+    }
+    if(tm.finished){
+      inner.replaceChildren(head, h("div", {class:"tm-done"}, h("div", {class:"tm-big-emoji"}, "💪"), h("h2", null, de ? "Geschafft!" : "Done!"),
+        h("p", {class:"small muted"}, de ? "Alle Runden sind im Protokoll abgehakt." : "Every round is ticked off in your log."),
+        h("button", {class:"btn primary block", onclick:close}, de ? "Zurück zur Übung" : "Back to the exercise")));
+      return;
+    }
+    const ph = tm.phases[tm.i] || {type:"ready", round:0}, next = tm.phases[tm.i + 1];
+    const typ = tm.countIn ? "ready" : ph.type;
+    inner.replaceChildren(head,
+      h("div", {class:"tm-run", "data-phase":typ},
+        h("div", {class:"tm-phase"}, W[typ]),
+        clock, bar,
+        h("div", {class:"tm-meta"}, `${de ? "Runde" : "Round"} ${Math.min(cfg.rounds, (ph.round || 0) + 1)} / ${cfg.rounds}`),
+        !tm.countIn && ph.dist ? h("p", {class:"small"}, de ? `${ph.dist} m hart – Stoppuhr läuft.` : `${ph.dist} m hard — stopwatch running.`) : null,
+        h("div", {class:"tm-next"}, next ? `${de ? "Danach" : "Next"}: ${W[next.type]}${next.sec ? " " + mmt(next.sec) : ""}` : (de ? "Danach: fertig" : "Next: finish")),
+        h("div", {class:"tm-controls"},
+          !tm.countIn && !ph.sec ? h("button", {class:"btn primary", onclick:() => endPhase()}, ph.dist ? (de ? `Fertig – ${ph.dist} m` : `Done — ${ph.dist} m`) : (de ? "Runde fertig" : "Round done")) : null,
+          h("button", {class:"btn", onclick:() => { if(tm.paused != null){ tm.phaseStart = Date.now() - tm.paused * 1000; tm.paused = null; keepAwake(true); } else { tm.paused = (Date.now() - tm.phaseStart) / 1000; keepAwake(false); } persist(); paint(); }}, tm.paused != null ? (de ? "▶ Weiter" : "▶ Resume") : (de ? "❚❚ Pause" : "❚❚ Pause")),
+          h("button", {class:"btn", onclick:() => endPhase()}, de ? "Überspringen ›" : "Skip ›"))));
+    paintClock();
+  }
+  document.body.append(ov);
+  if(tm && tm.running){                         // resume after a reload or reopening
+    keepAwake(true); if(tm.paused == null && tm.countIn){ delete tm.countIn; tm.phaseStart = Date.now(); }
+    clearInterval(tmTick); tmTick = setInterval(tick, 200);
+  }
+  paint();
 }
 
 /* ---------- rest timer: timestamp based, survives screen-off and reloads ---------- */
@@ -916,7 +1236,7 @@ function go(v, arg){
   document.body.classList.toggle("focus", FOCUS.includes(v));
   const m = $("#view"); m.replaceChildren();
   ({today:renderToday, checkin:renderCheckin, workout:renderWorkout, summary:renderSummary,
-    history:renderHistory, coach:renderCoachTab, profile:renderProfile, food:renderFood})[v](m, arg);
+    history:renderHistory, coach:renderCoachTab, profile:renderProfile, food:renderFood, extra:renderExtra})[v](m, arg);
   document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-current", t.dataset.tab === v ? "page" : "false"));
   window.scrollTo(0, 0);
   paintRest();
@@ -971,6 +1291,12 @@ function renderToday(m){
     strip));
 
   m.append(foodTodayCard());
+  if(!state){
+    const today = trainedTodayRecs();
+    m.append(today.length
+      ? h("button", {class:"extra-cta big", onclick:() => go("extra")}, h("span", null, "💪"), h("div", null, h("b", null, "Done for today ✅ — feel like more?"), h("small", null, "Add an extra session: cardio, core, mobility or a top-up")), h("em", null, "›"))
+      : h("button", {class:"extra-cta", onclick:() => go("extra")}, h("span", null, "➕"), h("div", null, h("b", null, "Extra session"), h("small", null, "Something outside your plan today")), h("em", null, "›")));
+  }
   // Programme tiles
   m.append(h("section", {class:"section"},
     h("div", {class:"section-head"}, h("h2", null, `Your ${plan.days}-day plan`), h("button", {class:"btn ghost sm", onclick:() => go("profile")}, "Edit plan")),
@@ -1075,7 +1401,7 @@ function paintExercise(){
   paintBar(); paintNav(); b.replaceChildren();
   const restTxt = ex.rest ? (ex.rest >= 60 ? `${Math.floor(ex.rest/60)}:${String(ex.rest%60).padStart(2,"0")}` : `${ex.rest}s`) : null;
   b.append(h("header", {class:"ex-head"},
-    h("div", {class:"spread"}, h("span", {class:"tag", "data-block":ex.block}, blockName(ex.block)), h("span", {class:"ex-count"}, `${state.exerciseIndex+1} ${T("of")} ${state.exercises.length}`)),
+    h("div", {class:"spread"}, h("span", {class:"tag", "data-block":ex.block}, exBlockName(ex)), h("span", {class:"ex-count"}, `${state.exerciseIndex+1} ${T("of")} ${state.exercises.length}`)),
     h("h2", {class:"ex-name"}, exName(ex.n)),
     h("div", {class:"target"}, h("b", null, `${ex.sets.length} × ${repsText(ex.reps)}`), restTxt ? ` · ${T("rest")} ${restTxt}` : ` · ${T("continuous")}`),
     ex.substitutedFor ? h("div", {class:"subbed"}, `${T("replacing")} ${exName(ex.substitutedFor)}`) : null));
@@ -1095,6 +1421,9 @@ function paintExercise(){
     ex.balance ? h("span", {class:"superset"}, isDE() ? "Ausgleich: automatisch hinzugefügt, weil das Essen heute über dem Ziel liegt. Lockeres, gleichmäßiges Tempo." : "Balance: added automatically because today's food is over target. Easy, steady pace — you can still talk.") : null,
     ex.supersetWith ? h("span", {class:"superset"}, isDE() ? `Supersatz: direkt weiter mit ${exName(ex.supersetWith)}, dann pausieren.` : `Superset: go straight to ${exName(ex.supersetWith)}, then rest.`) : null,
     last ? h("span", {class:"last"}, last) : null));
+  const tp = timerPlan(ex);
+  if(tp) b.append(h("button", {class:"timer-launch", onclick:() => openTimer(state.exerciseIndex)},
+    h("span", {class:"tl-icon"}, "⏱"), h("div", null, h("b", null, isDE() ? "Timer starten" : "Start timer"), h("span", null, timerSummary(tp))), h("span", {class:"tl-go"}, "▶")));
   const vid = videoFor(ex);
   const thumb = h("span", {class:"launch-thumb", "aria-hidden":"true"}, vid ? h("img", {src:ytThumb(vid), alt:"", loading:"lazy"}) : null, h("span", {class:"play"}, "▶"));
   thumb.querySelector("img")?.addEventListener("error", e => e.target.remove());
@@ -1109,16 +1438,17 @@ function paintExercise(){
     : type === "bwCond" ? ["", T("rounds"), T("done")]
     : type === "bike" ? ["", T("resistance"), T("time"), T("done")]
     : type === "stair" ? ["", T("level"), T("time"), T("done")]
+    : type === "treadmill" ? ["", "km/h", T("time"), T("done")]
     : type === "conditioning" ? ["", T("loadLevel"), T("rounds"), T("done")]
     : type === "carry" ? ["", T("kg"), T("distance"), T("done")] : ["", T("kg"), T("reps"), T("done")];
   const list = h("div", {class:"sets"});
   const current = ex.sets.findIndex(s => !s.done);
-  const step = ["bike","stair","conditioning"].includes(type) ? 1 : 2.5;
+  const step = type === "treadmill" ? 0.5 : ["bike","stair","conditioning"].includes(type) ? 1 : 2.5;
   ex.sets.forEach((s,i) => {
     const p = prev && prev.sets && prev.sets[i] && !(prev.done && prev.done[i] === false) ? prev.sets[i] : null;
     const phW = tgt.w || (p && p.w ? p.w : (type === "loadReps" || type === "carry" ? "kg" : "–"));
     const phR = p && p.r ? p.r : repsText(ex.reps);
-    const rIn = h("input", {inputmode:type === "bwReps" ? "numeric" : simple || type==="conditioning" || type==="bike" || type==="stair" ? "text" : "numeric", value:s.r, placeholder:phR, "aria-label":`Set ${i+1} ${cols[simple?1:2]}`, maxlength:"40"});
+    const rIn = h("input", {inputmode:type === "bwReps" ? "numeric" : simple || type==="conditioning" || type==="bike" || type==="stair" || type==="treadmill" ? "text" : "numeric", value:s.r, placeholder:phR, "aria-label":`Set ${i+1} ${cols[simple?1:2]}`, maxlength:"40"});
     rIn.addEventListener("input", () => { s.r = rIn.value.slice(0,40); persist(); });
     if((simple && type !== "bwReps") || String(phR).length > 6) rIn.classList.add("txt");
     const tick = h("button", {class:"tick", "aria-pressed":String(!!s.done), "aria-label":`Mark set ${i+1} ${s.done ? "not done" : "done"}`}, "✓");
@@ -1180,7 +1510,7 @@ function exerciseList(){
     state.exercises.forEach((ex,i) => {
       const d = ex.sets.filter(s => s.done).length;
       l.append(h("button", {"data-block":ex.block, onclick:() => { close(); state.exerciseIndex = i; persist(); paintExercise(); window.scrollTo({top:0}); }},
-        h("i", {class:"sw"}), h("div", {class:i === state.exerciseIndex ? "cur" : ""}, exName(ex.n), h("span", null, blockName(ex.block))),
+        h("i", {class:"sw"}), h("div", {class:i === state.exerciseIndex ? "cur" : ""}, exName(ex.n), h("span", null, exBlockName(ex))),
         h("span", {class:"state"}, ex.skipped ? T("skippedState") : d === ex.sets.length ? T("doneState") : `${d}/${ex.sets.length}`)));
     });
     card.append(l);
@@ -1211,12 +1541,12 @@ function substituteFlow(){
 }
 function alternatives(reason){
   const ex = curEx();
-  const allowed = new Set(Object.values(POOLS[plan.equipment] || POOLS.gym).flat());
+  const allowed = new Set(Object.values(poolsFor(plan.equipment, plan.style)).flat());
   const pool = library().filter(x => x.n !== ex.n && !state.exercises.some(y => y.n === x.n) && allowed.has(x.n));
   const same = ["Strength","Hypertrophy"].includes(ex.block) ? pool.filter(x => ["Strength","Hypertrophy"].includes(x.block)) : pool.filter(x => x.block === ex.block);
   const seen = new Set();
   // Same movement pattern first (e.g. push for push), then the exercise's listed swaps, then same training type.
-  const eqPools = POOLS[plan.equipment] || POOLS.gym;
+  const eqPools = poolsFor(plan.equipment, plan.style);
   const peers = Object.values(eqPools).filter(list => list.includes(ex.n)).flat().map(findEx).filter(x => x && x.n !== ex.n && !state.exercises.some(y => y.n === x.n));
   const subs = (ex.subs||[]).map(findEx).filter(x => x && allowed.has(x.n) && !state.exercises.some(y => y.n === x.n));
   const REGIONS = [["pushH","pushV","pullH","pullV"], ["squat","hinge","lunge","glute","ham"], ["core","durability"], ["power","interval","steady","circuit"],
@@ -1268,9 +1598,11 @@ async function finishFlow(){
     hist.forEach(r => (r.details||[]).forEach(x => { if(x.exercise === d.exercise){ seen = true; x.sets.forEach((s,i) => { if(!x.done || x.done[i] !== false) before = Math.max(before, num(s.w) ?? 0); }); } }));
     if(seen && top > before) bests.push(d.exercise);
   });
-  const rec = {date:new Date().toISOString(), workout:state.workoutName, minutes:Math.max(1, Math.round((Date.now()-state.startTime)/60000)), readiness:state.readiness, adaptation:state.adaptation?.label, details};
+  const rec = {date:new Date().toISOString(), workout:state.workoutName, minutes:Math.max(1, Math.round((Date.now()-state.startTime)/60000)), readiness:state.readiness, adaptation:state.adaptation?.label, details,
+    ...(state.extra ? {extra:true, extraKind:state.extraKind} : {})};
   hist.unshift(rec); setHistory(hist);
-  nextIndex = (state.workoutIndex + 1) % workouts.length; localStorage.setItem(K.next, String(nextIndex));
+  if(!state.extra){ nextIndex = (state.workoutIndex + 1) % workouts.length; localStorage.setItem(K.next, String(nextIndex)); }
+  if(state.extra && state.extraKind === "cardio"){ const bk = dayKey(), b = balances()[bk]; if(b && b.minutes && !b.removed) saveBalance(bk, {...b, done:true, mode:"walk"}); }   // counts as today's balance cardio
   state = null; localStorage.removeItem(K.active);
   go("summary", {rec, bests});
 }
@@ -1552,7 +1884,7 @@ function openGuide(ex, talk, startAt = 0){
   const reopen = () => { close(); if(state && wk) paintExercise(); openGuide(ex, false, i); };
   inner.append(
     h("div", {class:"ov-top"}, h("button", {class:"icon-btn plain", "aria-label":"Close guide", onclick:close}, "←"),
-      h("div", {class:"t"}, h("b", null, exName(ex.n)), h("span", {class:"tag", "data-block":ex.block}, blockName(ex.block))), chip),
+      h("div", {class:"t"}, h("b", null, exName(ex.n)), h("span", {class:"tag", "data-block":ex.block}, exBlockName(ex))), chip),
     (card = videoCard(ex, () => reopen())),
     h("div", {class:"section-head section"}, h("h2", null, T("stepByStep")), h("span", {class:"tiny muted"}, `${steps.length} ${T("step")}${voice.lang === "de" ? "e" : "s"}`)),
     h("p", {class:"tiny muted"}, T("tapStep")),
@@ -1936,6 +2268,11 @@ function planEditor(draft, onChange){
       h("div", {class:"field-label"}, "Where do you train?"),
       h("div", {class:"pick equip", role:"group"}, [["gym","Gym","Machines, barbells, dumbbells"],["bodyweight","Bodyweight","No equipment · a chair, table and step help"]].map(([v,t,sub]) =>
         h("button", {"aria-pressed":String((draft.equipment || "gym") === v), onclick:() => { draft.equipment = v; paint(); onChange && onChange(); }}, h("b", null, t), h("small", null, sub)))),
+      (draft.equipment || "gym") === "gym" ? h("div", null, h("div", {class:"field-label"}, "Training style"),
+        h("div", {class:"pick", role:"group"}, Object.entries(STYLES).map(([v,t]) => h("button", {"aria-pressed":String((draft.style || "mix") === v), onclick:() => { draft.style = v; paint(); onChange && onChange(); }}, t))),
+        h("p", {class:"tiny muted"}, (draft.style || "mix") === "classic" ? "Barbell and machine strength work with classic cardio."
+          : (draft.style || "mix") === "functional" ? "Barbell strength plus Hyrox & CrossFit: sleds, wall balls, burpee broad jumps, rowing, SkiErg, battle ropes, box jumps."
+          : "Barbell strength with a mix of classic cardio and Hyrox & CrossFit stations.")) : null,
       h("div", {class:"field-label"}, "Training days per week"),
       h("div", {class:"pick num", role:"group"}, [2,3,4,5,6].map(d => h("button", {"aria-pressed":String(draft.days === d), onclick:() => { draft.days = d; paint(); onChange && onChange(); }}, d))),
       h("div", {class:"field-label"}, "Main goal"),
@@ -2654,8 +2991,9 @@ const balances = () => read(K.balance, {}) || {};
 const saveBalance = (key, b) => { const all = balances(); all[key] = b; write(K.balance, all); };
 function steadyChoice(){
   const areas = (personal && personal.areas) || [];
-  if(plan.equipment === "bodyweight" || areas.includes("knees") || areas.includes("ankles")) return "Brisk Walk or Easy Jog";
-  return "StairMaster Steady State";
+  if(plan.equipment === "bodyweight") return "Brisk Walk or Easy Jog";
+  if(areas.includes("knees") || areas.includes("ankles")) return "Bike Steady Ride";
+  return ["StairMaster Steady State","Bike Steady Ride","Treadmill Incline Walk"][new Date().getDay() % 3];
 }
 function burnRate(){ const w = foodTargets().weight; return 5.5 * w / 80; }          // kcal per minute of steady cardio (estimate)
 function burnedOn(key){
@@ -2715,6 +3053,40 @@ function applyBalance(quiet){
     : mode === "next" ? `${p.minutes} min steady cardio will be added to today's workout.` : `Balance: ${p.minutes}-min brisk walk ${balanceTime(key)}.`);
   return p;
 }
+/* What a typical planned session burns for this person — the day's "burn goal". */
+function burnGoal(){ return Math.round(plan.duration * 6.5 * foodTargets().weight / 80 / 10) * 10; }
+const BURN_EQUIV = [["a latte",190,"☕"],["a chocolate bar",240,"🍫"],["a slice of pizza",290,"🍕"],["a shawarma wrap",520,"🌯"],["a rice & chicken bowl",650,"🍛"],["a burger & fries",950,"🍔"]];
+function burnEquivalent(key, burned){
+  if(burned < 100) return null;
+  const meals = mealsOn(key).filter(m => m.kcal >= 120 && m.kcal <= burned).sort((a,b) => b.kcal - a.kcal);
+  if(meals[0]) return `That's your ${meals[0].name} burned off ${meals[0].kcal >= 500 ? "🔥" : "✨"}`;
+  const fit = BURN_EQUIV.filter(e => e[1] <= burned).pop() || BURN_EQUIV[0];
+  const n = Math.max(1, Math.floor(burned / fit[1]));
+  return `That's about ${n > 1 ? `${n} × ` : ""}${fit[0]} ${fit[2]} worth of energy`;
+}
+function burnPanel(key){
+  const b = burnedOn(key), burned = b.total + b.live, goal = burnGoal(), pct = Math.min(100, goal ? 100 * burned / goal : 0);
+  if(!burned) return h("div", {class:"burn-panel rest"}, h("div", {class:"bp-top"}, h("b", null, "🔥 Burned today"), h("span", null, "0 kcal")),
+    h("p", {class:"small muted"}, key === dayKey() ? "Nothing yet — your next session lights this up." : "Rest day. Recovery counts too 💤"));
+  const fill = h("i"); fill.style.width = `${pct}%`;
+  const hit = burned >= goal;
+  return h("div", {class:"burn-panel" + (hit ? " hit" : "")},
+    h("div", {class:"bp-top"}, h("b", null, b.live ? "🔥 Burning now" : "🔥 Burned today"), h("span", null, `${burned.toLocaleString()} kcal`)),
+    h("div", {class:"burn-bar"}, fill),
+    h("div", {class:"bp-sub"}, hit ? h("span", {class:"bp-hit"}, "🏆 Burn goal smashed!") : h("span", null, `${Math.round(pct)}% of today's burn goal (${goal.toLocaleString()} kcal)`)),
+    burnEquivalent(key, burned) ? h("p", {class:"bp-eq"}, burnEquivalent(key, burned)) : null);
+}
+function energyBar(eaten, burned, target){
+  const max = Math.max(eaten, target) * 1.08 || 1, pos = v => `${Math.max(0, Math.min(100, 100 * v / max))}%`;
+  const net = Math.max(0, eaten - burned);
+  const wrap = h("div", {class:"energy-bar", role:"img", "aria-label":`Eaten ${eaten}, burned ${burned}, net ${net}, target ${target}`});
+  const inBar = h("i", {class:"eb-in"}); inBar.style.width = pos(eaten);
+  const outBar = h("i", {class:"eb-out"}); outBar.style.left = pos(net); outBar.style.width = pos(Math.min(burned, eaten));
+  const tgt = h("i", {class:"eb-target"}); tgt.style.left = pos(target);
+  const netMark = h("span", {class:"eb-net"}, `net ${net.toLocaleString()}`); netMark.style.left = pos(net);
+  wrap.append(h("div", {class:"eb-track"}, inBar, outBar, tgt), netMark);
+  return h("div", {class:"energy-wrap"}, wrap, h("div", {class:"eb-legend"}, h("span", null, h("i", {class:"lg-in"}), "eaten"), h("span", null, h("i", {class:"lg-out"}), "burned off"), h("span", null, h("i", {class:"lg-tgt"}), "target")));
+}
 function balanceCard(key){
   if(key !== dayKey()) return null;
   const b = balances()[key] || {}, p = balancePlan(key), burn = burnedOn(key), t = foodTargets();
@@ -2738,6 +3110,8 @@ function balanceCard(key){
   const net = p.eaten - burn.total;
   return h("section", {class:"panel section balance-card"},
     h("h2", null, "Today's balance"),
+    burnPanel(key),
+    energyBar(p.eaten, burn.total + burn.live, t.kcal),
     h("div", {class:"bal-row"},
       h("div", null, h("b", null, p.eaten.toLocaleString()), h("span", null, "eaten")),
       h("div", null, h("b", null, burn.total + burn.live ? `−${(burn.total + burn.live).toLocaleString()}` : "0"), h("span", null, burn.live ? "burned (live)" : "burned in training")),
@@ -2758,10 +3132,13 @@ function macroBar(label, val, target, unit = "g", kind = "limit"){
   return h("div", {class:"macro"}, h("div", {class:"macro-top"}, h("span", null, label), h("b", null, `${fmt(val)} / ${fmt(target)} ${unit}`)),
     h("div", {class:"macro-bar"}, fill));
 }
-function kcalRing(val, target){
+function kcalRing(val, target, burned = 0, burnGoal = 0){
   const pct = Math.min(1, target ? val / target : 0), r = 42, c = 2 * Math.PI * r;
-  const el = h("div", {class:"kcal-ring", role:"img", "aria-label":`${r0(val)} of ${r0(target)} calories`});
-  el.innerHTML = `<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="${r}" class="bg"/><circle cx="50" cy="50" r="${r}" class="fg" stroke-dasharray="${(c*pct).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 50 50)"/></svg>`;
+  const bp = Math.min(1, burnGoal ? burned / burnGoal : 0), r2 = 33, c2 = 2 * Math.PI * r2;
+  const el = h("div", {class:"kcal-ring", role:"img", "aria-label":`${r0(val)} of ${r0(target)} calories eaten, ${r0(burned)} burned`});
+  el.innerHTML = `<svg viewBox="0 0 100 100"><defs><linearGradient id="flame" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb020"/><stop offset="1" stop-color="#ef4b23"/></linearGradient></defs>
+    <circle cx="50" cy="50" r="${r}" class="bg"/><circle cx="50" cy="50" r="${r}" class="fg" stroke-dasharray="${(c*pct).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 50 50)"/>
+    ${burnGoal ? `<circle cx="50" cy="50" r="${r2}" class="bg2"/><circle cx="50" cy="50" r="${r2}" class="burn" stroke-dasharray="${(c2*bp).toFixed(1)} ${c2.toFixed(1)}" transform="rotate(-90 50 50)"/>` : ""}</svg>`;
   el.append(h("div", {class:"kr-text"}, h("b", null, r0(val).toLocaleString()), h("span", null, `of ${r0(target).toLocaleString()} kcal`)));
   return el;
 }
@@ -2801,7 +3178,7 @@ function renderFood(m){
       h("button", {class:"icon-btn", "aria-label":"Food settings", onclick:() => foodSetupSheet(false)}, "⚙"))));
   const wo = workoutsOn(foodDay);
   m.append(h("section", {class:"panel food-summary"},
-    h("div", {class:"fs-row"}, kcalRing(tt.kcal, t.kcal),
+    h("div", {class:"fs-row"}, kcalRing(tt.kcal, t.kcal, burnedOn(foodDay).total + burnedOn(foodDay).live, burnGoal()),
       h("div", {class:"fs-macros"}, macroBar("Protein", tt.protein, t.protein, "g", "aim"), t.keto ? macroBar("Net carbs", tt.carbs - tt.fiber, t.carbs) : macroBar("Carbs", tt.carbs, t.carbs), macroBar("Fat", tt.fat, t.fat))),
     h("details", {class:"more-nutr"}, h("summary", null, "Fiber, saturated fat & salt"),
       macroBar("Fiber (aim for)", tt.fiber, t.fiber, "g", "aim"), macroBar("Saturated fat (limit)", tt.satFat, t.satFat), macroBar("Sodium (limit)", tt.sodium, t.sodium, "mg")),
@@ -2853,6 +3230,7 @@ function foodTodayCard(){
   return h("section", {class:"panel section food-today", onclick:() => { foodDay = dayKey(); go("food"); }, role:"button", tabindex:"0"},
     h("div", {class:"spread"}, h("h2", null, "Food today"), h("span", {class:"linkish"}, "Log ›")),
     macroBar("Calories", tt.kcal, t.kcal, "kcal"), macroBar("Protein", tt.protein, t.protein, "g", "aim"),
+    (() => { const b = burnedOn(dayKey()), burned = b.total + b.live; if(!burned) return null; const bar = macroBar("🔥 Burned", burned, burnGoal(), "kcal", "aim"); bar.classList.add("flame"); return bar; })(),
     (() => { const b = burnedOn(dayKey()), bl = balances()[dayKey()] || {};
       return h("p", {class:"tiny muted"}, [b.total ? `🔥 ~${b.total} kcal burned in training` : null, `💧 ${(waterOn(dayKey())/1000).toFixed(1)} / ${(t.water/1000).toFixed(1)} L`,
         bl.minutes && !bl.removed ? `➕ ${bl.minutes} min balance cardio ${bl.mode === "walk" ? (bl.done ? "done" : "today") : "added to today's workout"}` : null].filter(Boolean).join(" · ")); })());
@@ -2866,6 +3244,7 @@ setupSW();
 if(LOCKED) renderAuth();
 else {
   go(state ? "workout" : "today");
+  if(state && state.timer && state.timer.running) setTimeout(() => openTimer(state.timer.ex), 100);   // resume a running interval timer
   if(!personal && !read(K.onboarded, false) && !getHistory().length) onboarding();
 }
 })();
