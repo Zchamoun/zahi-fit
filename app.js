@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "5.2.0";
+const VERSION = "5.3.0";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -13,7 +13,7 @@ const K = {
   rate:"zahiFitVoiceRateV312", voiceName:"zahiFitVoiceNameV313", voiceMale:"zahiFitVoiceMaleV494", voiceFemale:"zahiFitVoiceFemaleV494",
   chat:"zahiFitPTConversationV26", onboarded:"zahiFitOnboardedV4",
   lang:"zahiFitVoiceLangV41", gender:"zahiFitVoiceGenderV41", engine:"zahiFitVoiceEngineV41",
-  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44", videoPick:"zahiFitVideoPickV47", food:"zahiFitFoodLogV50", foodSet:"zahiFitFoodSettingsV50", foodQuick:"zahiFitFoodQuickV50", foodSeen:"zahiFitFoodSeenV50", water:"zahiFitWaterV51", balance:"zahiFitBalanceV51"
+  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44", videoPick:"zahiFitVideoPickV47", food:"zahiFitFoodLogV50", foodSet:"zahiFitFoodSettingsV50", foodQuick:"zahiFitFoodQuickV50", foodSeen:"zahiFitFoodSeenV50", water:"zahiFitWaterV51", balance:"zahiFitBalanceV51", adminKey:"zahiFitAdminKeyV53"
 };
 
 /* ---------- tiny helpers ---------- */
@@ -959,6 +959,7 @@ function extraOptions(r){
   return [...new Set(order)].map(k => opts.find(o => o.kind === k)).filter(Boolean);
 }
 function renderExtra(m){
+  track("extra_open");
   const r = {energy:null, soreness:null, time:30}, box = h("div");
   const done = trainedTodayRecs();
   m.append(h("div", {class:"ov-top"}, h("button", {class:"icon-btn plain", "aria-label":"Back", onclick:() => go("today")}, "←"), h("div", {class:"t"}, h("b", null, "Extra session"), h("span", {class:"tiny muted"}, "Outside your plan — your next planned session stays the same"))),
@@ -998,7 +999,7 @@ function startWorkout(index, r, custom){
     adaptation:{mode:a.profile.mode, tier:a.profile.tier, label:a.profile.label, message:a.profile.message, targetMinutes:r.time},
     exercises:a.keep.map(ex => ({...ex, skipped:false, rpe:null, sets:Array.from({length:ex.sets}, () => ({w:"", r:"", done:false}))}))
   };
-  persist(); applyBalance(true); unlockAudio(); go("workout");
+  persist(); applyBalance(true); unlockAudio(); track("workout_start", null, custom ? "extra" : "plan"); go("workout");
 }
 
 /* ---------- interval timer ----------
@@ -1112,7 +1113,7 @@ function openTimer(exIndex){
   };
   const start = () => {
     unlockAudio();
-    tm = state.timer = {ex:exIndex, cfg, phases:buildPhases(cfg), i:0, phaseStart:Date.now(), running:true, flags:{}};
+    tm = state.timer = {ex:exIndex, cfg, phases:buildPhases(cfg), i:0, phaseStart:Date.now(), running:true, flags:{}}; track("timer_start", null, cfg.kind);
     const firstOpen = ex.sets.findIndex(q => !q.done);
     if(firstOpen > 0){ tm.phases = tm.phases.filter(p => p.round >= firstOpen); }       // continue from the next round not yet done
     keepAwake(true); tSay("ready");
@@ -1236,7 +1237,7 @@ function go(v, arg){
   document.body.classList.toggle("focus", FOCUS.includes(v));
   const m = $("#view"); m.replaceChildren();
   ({today:renderToday, checkin:renderCheckin, workout:renderWorkout, summary:renderSummary,
-    history:renderHistory, coach:renderCoachTab, profile:renderProfile, food:renderFood, extra:renderExtra})[v](m, arg);
+    history:renderHistory, coach:renderCoachTab, profile:renderProfile, food:renderFood, extra:renderExtra, admin:renderAdmin})[v](m, arg);
   document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-current", t.dataset.tab === v ? "page" : "false"));
   window.scrollTo(0, 0);
   paintRest();
@@ -1600,7 +1601,7 @@ async function finishFlow(){
   });
   const rec = {date:new Date().toISOString(), workout:state.workoutName, minutes:Math.max(1, Math.round((Date.now()-state.startTime)/60000)), readiness:state.readiness, adaptation:state.adaptation?.label, details,
     ...(state.extra ? {extra:true, extraKind:state.extraKind} : {})};
-  hist.unshift(rec); setHistory(hist);
+  hist.unshift(rec); setHistory(hist); track("workout_finish", rec.minutes, state.extra ? "extra" : "plan");
   if(!state.extra){ nextIndex = (state.workoutIndex + 1) % workouts.length; localStorage.setItem(K.next, String(nextIndex)); }
   if(state.extra && state.extraKind === "cardio"){ const bk = dayKey(), b = balances()[bk]; if(b && b.minutes && !b.removed) saveBalance(bk, {...b, done:true, mode:"walk"}); }   // counts as today's balance cardio
   state = null; localStorage.removeItem(K.active);
@@ -1708,6 +1709,7 @@ function richText(text){
   return frag;
 }
 async function sendCoach(q){
+  track("coach_question");
   q = String(q||"").trim(); if(!q || coachBusy) return;
   coachBusy = true;
   chat.push({role:"user", text:q, at:new Date().toISOString()});
@@ -1803,6 +1805,7 @@ function videoCard(ex, onChange){
     const frame = h("div", {class:"video-frame"});
     const poster = h("button", {class:"video-poster", "aria-label":`${T("watch")}: ${exName(ex.n)}`, onclick:() => {
       if(navigator.onLine === false){ toast(T("offlineVideo")); return; }
+      track("video_open");
       hush();
       frame.replaceChildren(h("iframe", {src:`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1`,
         title:`${exName(ex.n)} — video`, allow:"autoplay; encrypted-media; picture-in-picture; fullscreen", allowfullscreen:true, referrerpolicy:"strict-origin-when-cross-origin"}));
@@ -1839,6 +1842,7 @@ function pickVideo(ex, onChange){
 }
 
 function openGuide(ex, talk, startAt = 0){
+  track("guide_open");
   const fam = familyOf(ex), how = exHow(ex), enSteps = STEPS[fam] || STEPS.circuit;
   const steps = stepsOf(fam).map((st,k) => ({title:st[0], text:st[1], cue:how[k] || null, icon:stepIcon((enSteps[k] || st)[0])}));
   let i = Math.min(startAt, steps.length - 1), playingAll = false;
@@ -2104,7 +2108,7 @@ function renderAuth(mode, prefill){
       write(USERS_KEY, people);
       renderAuth("recovery", {name, code});
     });
-    m.append(h("section", {class:"auth"}, ...head("Create your account", "Your workouts, plan and settings stay private to your account on this phone."),
+    m.append(h("section", {class:"auth"}, ...head("Create your account", "Your workouts, plan and settings stay private to your account on this phone. Zahi Fit shares anonymous usage counts (no names or personal data) — you can turn that off in Profile."),
       u.wrap, p1.wrap, p2.wrap, linkBox, msg, go1,
       claimed().length ? h("button", {class:"linkish block", onclick:() => renderAuth("login")}, "Already have an account? Sign in") : null));
     check(); setTimeout(() => u.input.focus(), 100);
@@ -2333,7 +2337,13 @@ function download(name, data){
 }
 function renderProfile(m){
   m.append(topline("Profile"));
-  m.append(accountPanel(), h("h2", {class:"section profile-for"}, `${me.name}'s settings`));
+  m.append(accountPanel());
+  if(isAdmin()) m.append(h("button", {class:"admin-cta section", onclick:() => go("admin")}, h("span", null, "🛡"), h("div", null, h("b", null, "Admin dashboard"), h("small", null, "People using the app, workouts, food, versions")), h("em", null, "›")));
+  const statsBox = h("input", {type:"checkbox", checked:statsOn(), id:"stats-on"});
+  statsBox.addEventListener("change", () => { if(statsBox.checked){ localStorage.removeItem(STATS_OFF); toast("Thanks — anonymous stats on."); } else { localStorage.setItem(STATS_OFF, "1"); localStorage.removeItem(STATS_Q); toast("Anonymous stats off."); } });
+  m.append(h("section", {class:"panel section"}, h("label", {class:"stay", for:"stats-on"}, statsBox,
+    h("span", null, h("b", null, "Share anonymous usage stats"), h("small", null, "Counts like app opens, workouts finished and features used, with a random ID — never your name, body data, what you eat or your chats. Helps improve Zahi Fit.")))),
+    h("h2", {class:"section profile-for"}, `${me.name}'s settings`));
   // Plan (live preview updates as you choose; Save applies it)
   const pd = clone(plan);
   const preview = h("div", {class:"plan-preview"});
@@ -2732,7 +2742,7 @@ function asItem(f, mult = 1){ const base = {}; NUTR.forEach(k => { base[k] = +f[
 const itemValues = it => { const v = {name:it.name, serving:it.serving, qty:it.qty}; NUTR.forEach(k => { v[k] = (it.base[k] || 0) * it.qty; }); return v; };
 const roundMeal = t => ({kcal:r0(t.kcal), protein:+t.protein.toFixed(1), carbs:+t.carbs.toFixed(1), fat:+t.fat.toFixed(1), fiber:+t.fiber.toFixed(1), satFat:+t.satFat.toFixed(1), sodium:r0(t.sodium)});
 function saveMeal(meal){
-  const list = foodLog(); list.push(meal); saveFoodLog(list);
+  const list = foodLog(); list.push(meal); saveFoodLog(list); track("food_log", null, meal.source || "quick");
   if(meal.date === dayKey()) setTimeout(() => applyBalance(), 50);
   // after the same meal twice, offer a one-tap button
   const quick = quickList(), n = list.filter(m => normName(m.name) === normName(meal.name)).length;
@@ -3236,6 +3246,115 @@ function foodTodayCard(){
         bl.minutes && !bl.removed ? `➕ ${bl.minutes} min balance cardio ${bl.mode === "walk" ? (bl.done ? "done" : "today") : "added to today's workout"}` : null].filter(Boolean).join(" · ")); })());
 }
 
+/* ---------- anonymous usage stats (for the app owner's admin dashboard) ----------
+   Only random IDs, counts and plan choices are sent — never names, body data, pain areas, food or chat content.
+   Anyone can switch it off in Profile. */
+const STATS_ENDPOINT = "https://zahi-fit-stats.chamounzahi.workers.dev";
+const STATS_Q = "zahiFitStatsQueueV53", STATS_OFF = "zahiFitStatsOffV53", DEVICE_ID = "zahiFitDeviceIdV53";
+const rid = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), b => (b % 36).toString(36)).join("") + Date.now().toString(36).slice(-4);
+function deviceId(){ let d = localStorage.getItem(DEVICE_ID); if(!d || !/^[a-z0-9]{8,32}$/.test(d)){ d = rid(); localStorage.setItem(DEVICE_ID, d); } return d; }
+function accountStatsId(){
+  if(LOCKED || !me || !me.id) return null;
+  if(!me.aid){ me.aid = rid(); me.aidCreated = Date.now(); write(USERS_KEY, people); queueStat("account_created"); }
+  return me.aid;
+}
+const statsOn = () => localStorage.getItem(STATS_OFF) !== "1";
+function queueStat(type, v, m){
+  if(!statsOn() || LOCKED || !me) return;
+  const aid = me.aid; if(!aid) return;
+  const q = read(STATS_Q, []) || []; q.push({a:aid, t:Date.now(), type, v:v ?? null, m:m ?? null});
+  write(STATS_Q, q.slice(-300));
+  clearTimeout(queueStat.timer); queueStat.timer = setTimeout(flushStats, 4000);
+}
+const track = (type, v, m) => { if(accountStatsId()) queueStat(type, v, m); };
+const platformName = () => IS_APPLE ? "iPhone" : /Android/i.test(navigator.userAgent) ? "Android" : "Other";
+async function flushStats(){
+  if(!statsOn() || navigator.onLine === false || LOCKED || !me || !me.aid) return;
+  const q = read(STATS_Q, []) || [], mine = q.filter(e => e.a === me.aid).slice(0, 60);
+  if(!mine.length) return;
+  const body = {device:deviceId(), account:me.aid, created:me.aidCreated || null, version:VERSION, platform:platformName(), lang:voice.lang,
+    profile:{goal:plan.primary, days:plan.days, equipment:plan.equipment, style:plan.style, sex:personal && personal.sex, age:personal && personal.ageBracket},
+    events:mine.map(e => ({t:e.t, type:e.type, v:e.v, m:e.m}))};
+  try{
+    // text/plain + keepalive: no pre-flight request, and it still sends if the app is closed right after
+    const res = await fetch(STATS_ENDPOINT + "/e", {method:"POST", headers:{"Content-Type":"text/plain"}, body:JSON.stringify(body), keepalive:true});
+    if(res.ok){ const sent = new Set(mine); write(STATS_Q, (read(STATS_Q, []) || []).filter(e => !mine.some(x => x.a === e.a && x.t === e.t && x.type === e.type))); }
+  }catch{}
+}
+addEventListener("pagehide", () => { flushStats(); });
+addEventListener("online", () => { flushStats(); });
+
+/* ---------- admin dashboard (username zchamoun + server-checked admin key) ---------- */
+const ADMIN_USER = "zchamoun";
+const isAdmin = () => !LOCKED && me && normUser(me.username) === ADMIN_USER;
+function renderAdmin(m){
+  if(!isAdmin()){ go("today"); return; }
+  const box = h("div");
+  m.append(h("div", {class:"ov-top"}, h("button", {class:"icon-btn plain", "aria-label":"Back", onclick:() => go("profile")}, "←"),
+    h("div", {class:"t"}, h("b", null, "🛡 Admin dashboard"), h("span", {class:"tiny muted"}, "Anonymous usage across everyone using Zahi Fit"))), box);
+  const unlock = msg => {
+    const pw = h("input", {class:"text-input", type:"password", placeholder:"Admin key", autocomplete:"off", "aria-label":"Admin key"});
+    const btn = h("button", {class:"btn primary block section"}, "Unlock");
+    const note = h("p", {class:"auth-msg"}, msg || "");
+    btn.addEventListener("click", () => { const k = pw.value.trim(); if(!k) return; write(K.adminKey, k); load(); });
+    pw.addEventListener("keydown", e => { if(e.key === "Enter") btn.click(); });
+    box.replaceChildren(h("section", {class:"panel section"}, h("h2", null, "Enter your admin key"),
+      h("p", {class:"small muted"}, "The ADMIN_TOKEN you set in the zahi-fit-stats Worker. It's checked by the server and saved only in this account on this phone."), pw, note, btn));
+    setTimeout(() => pw.focus(), 100);
+  };
+  const load = async () => {
+    const key = read(K.adminKey, null); if(!key){ unlock(); return; }
+    box.replaceChildren(h("p", {class:"small muted section center"}, "Loading…"));
+    try{
+      const res = await fetch(STATS_ENDPOINT + "/admin/summary", {headers:{Authorization:"Bearer " + key}});
+      const data = await res.json().catch(() => ({}));
+      if(res.status === 401){ localStorage.removeItem(K.adminKey); unlock("That admin key isn't right."); return; }
+      if(!res.ok){ box.replaceChildren(h("p", {class:"small section"}, data.error || data.problem || `Stats service error (${res.status}).`)); return; }
+      paint(data);
+    }catch{ box.replaceChildren(h("p", {class:"small section"}, "Couldn't reach the stats service. Check your connection, or that the zahi-fit-stats Worker is deployed.")); }
+  };
+  const tile = (n, label, sub) => h("div", {class:"kpi"}, h("b", null, n == null ? "—" : Number(n).toLocaleString()), h("span", null, label), sub ? h("small", null, sub) : null);
+  const bars = (rows, labelFn, max) => { const mx = max || Math.max(1, ...rows.map(r => r.n));
+    return h("div", {class:"dist"}, rows.map(r => { const f = h("i"); f.style.width = `${Math.max(3, 100 * r.n / mx)}%`;
+      return h("div", {class:"dist-row"}, h("span", null, labelFn ? labelFn(r.k) : r.k), h("div", {class:"dist-bar"}, f), h("b", null, r.n)); })); };
+  const series = (rows, days = 14) => { const map = Object.fromEntries(rows.map(r => [r.day, r.n])), out = [];
+    for(let i = days - 1; i >= 0; i--){ const d = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10); out.push({day:d, n:map[d] || 0}); }
+    const mx = Math.max(1, ...out.map(x => x.n)), el = h("div", {class:"spark", role:"img"});
+    el.innerHTML = `<svg viewBox="0 0 280 90">${out.map((x, i) => { const hh = x.n ? Math.max(4, 70 * x.n / mx) : 2; return `<rect x="${i * 20 + 3}" y="${76 - hh}" width="14" height="${hh}" rx="3" class="${x.n ? "on" : "off"}"/><text x="${i * 20 + 10}" y="88" text-anchor="middle">${x.day.slice(8)}</text>`; }).join("")}</svg>`;
+    return el; };
+  const GL = {fat_loss:"Fat loss", muscle:"Muscle", strength:"Strength", endurance:"Endurance", athletic:"Athletic", mobility:"Mobility"};
+  const FL = {food_log:"Food logged", workout_finish:"Workouts finished", timer_start:"Interval timer", coach_question:"AI coach questions", video_open:"Videos watched",
+    guide_open:"Guides opened", extra_open:"Extra-session screen", account_created:"New accounts"};
+  const paint = d => {
+    const t = new Date(d.generated).toLocaleString(undefined, {hour:"2-digit", minute:"2-digit", day:"numeric", month:"short"});
+    box.replaceChildren(
+      h("div", {class:"spread section"}, h("span", {class:"tiny muted"}, `Updated ${t}`), h("button", {class:"btn sm", onclick:load}, "↻ Refresh")),
+      h("h3", {class:"section"}, "People"),
+      h("div", {class:"kpis"}, tile(d.active.now, "using now", "last 15 min"), tile(d.active.today, "active today"), tile(d.active.week, "active 7 days"), tile(d.active.month, "active 30 days"),
+        tile(d.totals.accounts, "accounts", `${d.totals.devices} phones`), tile(d.totals.newLast7, "new this week"),
+        tile(d.retention7.pct == null ? null : d.retention7.pct + "%", "7-day retention", d.retention7.cohort ? `${d.retention7.kept} of ${d.retention7.cohort}` : "not enough data yet")),
+      h("section", {class:"panel section"}, h("h2", null, "Daily active people"), series(d.series.dau)),
+      h("h3", {class:"section"}, "Training"),
+      h("div", {class:"kpis"}, tile(d.workouts.today, "workouts today"), tile(d.workouts.week, "workouts 7 days"), tile(d.workouts.month, "workouts 30 days"),
+        tile(d.workouts.avgMinutes, "avg minutes"), tile(d.workouts.perActiveUserWeek, "per active person / wk"), tile(d.workouts.extraMonth, "extra sessions 30 d")),
+      h("section", {class:"panel section"}, h("h2", null, "Workouts per day"), series(d.series.workouts)),
+      h("h3", {class:"section"}, "Food"),
+      h("div", {class:"kpis"}, tile(d.food.logsWeek, "meals logged 7 d"), tile(d.food.usersWeek, "people logging food")),
+      d.foodHow.length ? h("section", {class:"panel section"}, h("h2", null, "How food is logged (30 d)"), bars(d.foodHow)) : null,
+      d.features.length ? h("section", {class:"panel section"}, h("h2", null, "Feature use (7 days)"), bars(d.features.map(f => ({k:f.type, n:f.n})), k => FL[k] || k)) : null,
+      h("section", {class:"panel section"}, h("h2", null, "Who uses it (active 30 days)"),
+        h("h4", null, "Goal"), bars(d.dist.goal, k => GL[k] || k), h("h4", null, "Training style"), bars(d.dist.style, k => STYLES[k] || k),
+        h("h4", null, "Equipment"), bars(d.dist.equipment, k => EQUIPMENT[k] || k), h("h4", null, "Days per week"), bars(d.dist.days, k => k === "—" ? k : `${k} days`),
+        h("h4", null, "Sex"), bars(d.dist.sex, k => ({male:"Male", female:"Female"})[k] || k), h("h4", null, "Age"), bars(d.dist.age),
+        h("h4", null, "Phone"), bars(d.dist.platform), h("h4", null, "Language"), bars(d.dist.lang, k => ({en:"English", de:"Deutsch"})[k] || k)),
+      h("section", {class:"panel section"}, h("h2", null, "App versions (active 30 days)"), bars(d.dist.version, k => k === VERSION ? `${k} (latest)` : k),
+        h("p", {class:"tiny muted"}, "People on older versions haven't tapped Update yet.")),
+      h("button", {class:"linkish block section", onclick:() => { localStorage.removeItem(K.adminKey); toast("Admin key removed from this phone."); unlock(); }}, "Forget the admin key on this phone"),
+      h("p", {class:"tiny muted center"}, "Anonymous: random IDs only — no names, body data, food details or chat content."));
+  };
+  load();
+}
+
 /* ---------- boot ---------- */
 document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => go(t.dataset.tab)));
 document.addEventListener("pointerdown", unlockAudio, {once:true});
@@ -3244,6 +3363,7 @@ setupSW();
 if(LOCKED) renderAuth();
 else {
   go(state ? "workout" : "today");
+  track("app_open"); setTimeout(flushStats, 1500);
   if(state && state.timer && state.timer.running) setTimeout(() => openTimer(state.timer.ex), 100);   // resume a running interval timer
   if(!personal && !read(K.onboarded, false) && !getHistory().length) onboarding();
 }
