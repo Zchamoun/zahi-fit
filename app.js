@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "4.9.0";
+const VERSION = "4.9.2";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -96,7 +96,7 @@ function toast(msg){
   document.querySelector(".toast")?.remove();
   const t = h("div", {class:"toast", role:"status"}, msg);
   document.body.append(t);
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 2600);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), Math.max(2600, String(msg).length * 60));
 }
 function ask(title, body, okLabel, danger){
   return new Promise(res => {
@@ -686,7 +686,12 @@ async function naturalClip(text, translate, patient){
       const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 35000);
       try{
         const res = await fetch(VOICE_ENDPOINT, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload), signal:ctl.signal});
-        if(!res.ok || !/audio/.test(res.headers.get("Content-Type") || "")) throw new Error(`voice ${res.status}`);
+        if(!res.ok || !/audio/.test(res.headers.get("Content-Type") || "")){
+          let info = {}; try{ info = await res.json(); }catch{}
+          const err = new Error(info.error || `Voice service error ${res.status}`);
+          err.status = res.status; err.upstream = info.status || null; err.detail = String(info.detail || "");
+          throw err;
+        }
         const blob = await res.blob();
         if(cache){
           cache.put(key, new Response(blob, {headers:{"Content-Type":"audio/mpeg"}})).catch(() => {});
@@ -725,7 +730,7 @@ function speak(text, {force=false, onend, translate=false, onready, patient=fals
     return player.play();
   }).catch(err => {
     console.warn("Natural voice unavailable, using phone voice", err);
-    if(token === speechToken && !fellBackNoticed){ fellBackNoticed = true; toast("The natural voice didn't respond, so your phone's voice is reading this."); }
+    if(token === speechToken && !fellBackNoticed){ fellBackNoticed = true; toast("Using your phone's voice. " + voiceProblem(err)); }
     fallback();
   });
 }
@@ -1517,42 +1522,23 @@ function phoneSetupGuide(){
       ol("Fully close Chrome and Zahi Fit (recent apps › swipe away), then reopen so the new voices appear.",
          "Profile › Language & voice: pick the language and Phone voice, then tap Confirm.",
          "Tap Test voice. If you hear the wrong voice, choose it in the Phone voice list."),
-      h("p", {class:"small muted section"}, "Tip: for the most lifelike voice, use Natural instead and tap \"Save guides for offline\" on Wi-Fi. Your guides then play in that voice even without signal."));
+      h("p", {class:"small muted section"}, "Tip: for the most lifelike voice, use Natural instead. Each phrase is saved on your phone the first time it plays."));
   });
 }
 
-/* ---------- Save guide narration for offline use ---------- */
-let offlineJob = null;
-function planGuideLines(){
-  const seen = new Set(), lines = [];
-  workouts.forEach(w => w.exercises.forEach(ex => {
-    if(seen.has(ex.n)) return; seen.add(ex.n);
-    const how = exHow(ex);
-    stepsOf(familyOf(ex)).forEach((st,k) => lines.push(phrase().step(k+1, st[0], st[1], how[k] || null)));
-  }));
-  const p = phrase();
-  [p.ten, p.done, p.good, p.test, ...[20,30,45,60,75,90,120,150].map(p.rest)].forEach(x => lines.push(x));
-  return lines;
-}
-const offlineSig = () => [voice.lang, voice.gender, planGuideLines().length, plan.days, plan.primary].join("|");
-async function saveOffline(btn, status, repaint){
-  if(offlineJob){ offlineJob.cancel = true; return; }
-  if(voice.engine !== "natural"){ toast("Choose Natural first. Phone voice already works offline."); return; }
-  if(navigator.onLine === false){ toast("You're offline. Connect to Wi-Fi and try again."); return; }
-  const lines = planGuideLines(), job = offlineJob = {cancel:false};
-  btn.textContent = "Stop"; btn.classList.add("primary"); btn.classList.remove("idle");
-  let done = 0, failed = 0;
-  for(const line of lines){
-    if(job.cancel) break;
-    try{ await naturalClip(line, false, true); }catch{ failed++; if(failed >= 3) break; }
-    done++; status.textContent = `Saving ${done} of ${lines.length}…`;
-  }
-  offlineJob = null;
-  if(!job.cancel && failed < 3) localStorage.setItem(K.offline, offlineSig());
-  if(repaint) repaint(); else btn.textContent = "Save guides for offline";
-  status.textContent = job.cancel ? `Stopped at ${done} of ${lines.length}. Tap again to continue — saved clips are kept.`
-    : failed >= 3 ? "Couldn't reach the voice service. Check your connection and try again; saved clips are kept."
-    : `Done. ${lines.length} clips saved for ${langLabel(voice.lang)} · ${genderLabel(voice.gender)}.`;
+/* Plain-language reason for a voice failure, with what to do about it. */
+function voiceProblem(err){
+  const st = err && err.status, up = err && err.upstream, d = ((err && (err.detail + " " + err.message)) || "").toLowerCase();
+  if(!err || err.name === "TypeError" || /timeout|abort|failed to fetch|load failed/.test(d))
+    return "Couldn't reach the voice Worker. Check your connection; if it keeps happening, check that the zahi-fit-voice Worker is deployed.";
+  if(st === 403) return "The voice Worker refused this app's address. In the Worker code, ALLOWED_ORIGINS must include https://zchamoun.github.io.";
+  if(st === 500 && /openai_api_key/.test(d)) return "The OPENAI_API_KEY secret is missing in the zahi-fit-voice Worker (Settings › Variables and Secrets).";
+  if(up === 429 && /quota|billing|credit/.test(d)) return "Your OpenAI account has no credit left. Add credit at platform.openai.com › Settings › Billing, then tap again.";
+  if(up === 429) return "OpenAI is rate-limiting requests. Wait a minute and tap again — saved clips are kept.";
+  if(up === 401 || /incorrect api key|invalid api key/.test(d)) return "OpenAI rejected the key. Re-paste OPENAI_API_KEY in the zahi-fit-voice Worker.";
+  if(up === 403 || /permission|scope/.test(d)) return "The OpenAI key doesn't have permission for speech. Edit the key (or make a new one) with Model capabilities: Write, or All.";
+  if(up === 404 || /model/.test(d)) return "Your OpenAI account can't use the speech model. Check that the project has access to gpt-4o-mini-tts / tts-1.";
+  return `The voice service returned an error (${st || "?"}${up ? "/" + up : ""})${err.detail ? ": " + err.detail.slice(0, 140) : ""}.`;
 }
 
 /* ---------- accounts: password hashing ---------- */
@@ -1931,11 +1917,6 @@ function renderProfile(m){
     });
     paintTest();
     rate.addEventListener("change", paintTest);
-    const offBtn = h("button", {class:"btn block"}, "Save guides for offline"), offStatus = h("p", {class:"tiny muted"},
-      "Downloads the spoken guide for every exercise in your plan, in the confirmed language and voice. Use Wi-Fi; it takes a few minutes.");
-    const paintOff = () => { if(!offlineJob) actionState(offBtn, localStorage.getItem(K.offline) !== offlineSig(), "Save guides for offline", "Guides saved for offline ✓"); };
-    offBtn.addEventListener("click", () => saveOffline(offBtn, offStatus, paintOff));
-    paintOff();
     vpanel.replaceChildren(h("h2", null, "Language & voice"),
       voiceEditor(paintVoicePanel),
       h("div", {class:"section"}),
@@ -1944,7 +1925,6 @@ function renderProfile(m){
       h("div", {class:"setting"}, h("span", null, "Speed"), rate),
       phoneVoice,
       testBtn,
-      voice.engine === "natural" ? h("div", {class:"section"}, offBtn, offStatus) : null,
       h("button", {class:"btn ghost block", onclick:phoneSetupGuide}, "How to set up your phone's voices"));
   };
   paintVoicePanel();
