@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "5.0.0";
+const VERSION = "5.1.0";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -13,7 +13,7 @@ const K = {
   rate:"zahiFitVoiceRateV312", voiceName:"zahiFitVoiceNameV313", voiceMale:"zahiFitVoiceMaleV494", voiceFemale:"zahiFitVoiceFemaleV494",
   chat:"zahiFitPTConversationV26", onboarded:"zahiFitOnboardedV4",
   lang:"zahiFitVoiceLangV41", gender:"zahiFitVoiceGenderV41", engine:"zahiFitVoiceEngineV41",
-  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44", videoPick:"zahiFitVideoPickV47", food:"zahiFitFoodLogV50", foodSet:"zahiFitFoodSettingsV50", foodQuick:"zahiFitFoodQuickV50", foodSeen:"zahiFitFoodSeenV50"
+  tested:"zahiFitVoiceTestedV43", offline:"zahiFitOfflineSavedV43", installHide:"zahiFitInstallHiddenV44", videoPick:"zahiFitVideoPickV47", food:"zahiFitFoodLogV50", foodSet:"zahiFitFoodSettingsV50", foodQuick:"zahiFitFoodQuickV50", foodSeen:"zahiFitFoodSeenV50", water:"zahiFitWaterV51", balance:"zahiFitBalanceV51"
 };
 
 /* ---------- tiny helpers ---------- */
@@ -855,7 +855,7 @@ function startWorkout(index, r){
     adaptation:{mode:a.profile.mode, tier:a.profile.tier, label:a.profile.label, message:a.profile.message, targetMinutes:r.time},
     exercises:a.keep.map(ex => ({...ex, skipped:false, rpe:null, sets:Array.from({length:ex.sets}, () => ({w:"", r:"", done:false}))}))
   };
-  persist(); unlockAudio(); go("workout");
+  persist(); applyBalance(true); unlockAudio(); go("workout");
 }
 
 /* ---------- rest timer: timestamp based, survives screen-off and reloads ---------- */
@@ -1092,6 +1092,7 @@ function paintExercise(){
     h("div", {class:"today-target"}, h("span", {class:"tt-label"}, isDE() ? "Heute" : "Today"), h("b", null, tgt.text)),
     tgt.why ? h("span", {class:"why"}, tgt.why) : null,
     type === "repsTime" ? h("span", {class:"why"}, suggestion(ex, prev, reducedDay())) : null,
+    ex.balance ? h("span", {class:"superset"}, isDE() ? "Ausgleich: automatisch hinzugefügt, weil das Essen heute über dem Ziel liegt. Lockeres, gleichmäßiges Tempo." : "Balance: added automatically because today's food is over target. Easy, steady pace — you can still talk.") : null,
     ex.supersetWith ? h("span", {class:"superset"}, isDE() ? `Supersatz: direkt weiter mit ${exName(ex.supersetWith)}, dann pausieren.` : `Superset: go straight to ${exName(ex.supersetWith)}, then rest.`) : null,
     last ? h("span", {class:"last"}, last) : null));
   const vid = videoFor(ex);
@@ -2252,7 +2253,8 @@ const foodLog = () => read(K.food, []) || [];
 const saveFoodLog = list => write(K.food, list);
 const foodSettings = () => read(K.foodSet, null);
 const slotForNow = (t = new Date()) => { const h = t.getHours(); return h < 11 ? "breakfast" : h < 16 ? "lunch" : h < 22 ? "dinner" : "snack"; };
-const totals = items => items.reduce((a, x) => ({kcal:a.kcal + (+x.kcal||0), protein:a.protein + (+x.protein||0), carbs:a.carbs + (+x.carbs||0), fat:a.fat + (+x.fat||0), fiber:a.fiber + (+x.fiber||0)}), {kcal:0, protein:0, carbs:0, fat:0, fiber:0});
+const NUTR = ["kcal","protein","carbs","fat","fiber","satFat","sodium"];
+const totals = items => items.reduce((a, x) => { NUTR.forEach(k => { a[k] += +x[k] || 0; }); return a; }, {kcal:0, protein:0, carbs:0, fat:0, fiber:0, satFat:0, sodium:0});
 const mealsOn = key => foodLog().filter(m => m.date === key);
 const normName = s => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
 let foodDay = null;   // the day shown on the Food tab
@@ -2278,7 +2280,11 @@ function foodTargets(){
   const keto = fs.diet === "keto";
   const fat = keto ? Math.round((kcal - protein*4 - 30*4) / 9) : Math.round(kcal * 0.3 / 9);
   const carbs = keto ? 30 : Math.max(0, Math.round((kcal - protein*4 - fat*9) / 4));
-  return {kcal, protein, carbs, fat, keto, goal, weight:w, height:ht};
+  const satFat = Math.round(kcal * 0.10 / 9);                  // under 10% of calories
+  const sodium = 2300;                                          // mg per day (about one teaspoon of salt)
+  const fiber = Math.round(kcal / 1000 * 14);                   // 14 g per 1,000 kcal
+  const water = Math.round(Math.min(4500, Math.max(2000, w * 33)) / 250) * 250;   // ml
+  return {kcal, protein, carbs, fat, keto, goal, weight:w, height:ht, satFat, sodium, fiber, water};
 }
 
 /* ---------- workouts (from the training side) ---------- */
@@ -2350,8 +2356,9 @@ function foodContext(extra = {}){
     goal:FOOD_GOALS[fs.goal || "plan"], trainingGoal:GOALS[plan.primary], targets:{kcal:t.kcal, protein_g:t.protein, carbs_g:t.carbs, fat_g:t.fat, netCarbs:t.keto},
     diet:DIETS[fs.diet || "balanced"], proteinSources:PROTEIN_SRC[fs.protein || "any"], cooking:COOKING[fs.cooking || "mix"], effort:EFFORT[fs.effort || "low"],
     today:{date:key, meals:meals.map(m => ({slot:m.slot, meal:m.name, kcal:r0(m.kcal), protein:r0(m.protein), time:new Date(m.time).toTimeString().slice(0,5)})),
-      totals:{kcal:r0(tt.kcal), protein:r0(tt.protein), carbs:r0(tt.carbs), fat:r0(tt.fat), fiber:r0(tt.fiber)}},
-    workoutsToday:workoutsOn(key), recentWorkout:recentWorkout(),
+      totals:{kcal:r0(tt.kcal), protein:r0(tt.protein), carbs:r0(tt.carbs), fat:r0(tt.fat), fiber:r0(tt.fiber), satFat:r0(tt.satFat), sodium_mg:r0(tt.sodium)}},
+    workoutsToday:workoutsOn(key), recentWorkout:recentWorkout(), burnedToday:burnedOn(key).total, balance:balances()[key] || null,
+    limits:{satFat_g:t.satFat, sodium_mg:t.sodium, fiber_g:t.fiber, water_ml:t.water}, waterToday_ml:waterOn(key),
     nextPlannedSession:workouts && workouts[nextIndex] ? workouts[nextIndex].name : null,
     week:{daysLogged:w.logged, avgKcal:w.avgKcal, avgProtein:w.avgProtein, daysOnTarget:w.onTarget, proteinDays:w.proteinDays},
     patterns:foodPatterns(), ...extra
@@ -2384,10 +2391,12 @@ function busySheet(text){
 }
 
 /* ---------- logging ---------- */
-function asItem(f, mult = 1){ return {name:f.name, serving:f.serving || "1 serving", base:{kcal:+f.kcal||0, protein:+f.protein||0, carbs:+f.carbs||0, fat:+f.fat||0, fiber:+f.fiber||0}, qty:mult}; }
-const itemValues = it => { const q = it.qty; const b = it.base; return {name:it.name, serving:it.serving, qty:q, kcal:b.kcal*q, protein:b.protein*q, carbs:b.carbs*q, fat:b.fat*q, fiber:b.fiber*q}; };
+function asItem(f, mult = 1){ const base = {}; NUTR.forEach(k => { base[k] = +f[k] || 0; }); return {name:f.name, serving:f.serving || "1 serving", base, qty:mult}; }
+const itemValues = it => { const v = {name:it.name, serving:it.serving, qty:it.qty}; NUTR.forEach(k => { v[k] = (it.base[k] || 0) * it.qty; }); return v; };
+const roundMeal = t => ({kcal:r0(t.kcal), protein:+t.protein.toFixed(1), carbs:+t.carbs.toFixed(1), fat:+t.fat.toFixed(1), fiber:+t.fiber.toFixed(1), satFat:+t.satFat.toFixed(1), sodium:r0(t.sodium)});
 function saveMeal(meal){
   const list = foodLog(); list.push(meal); saveFoodLog(list);
+  if(meal.date === dayKey()) setTimeout(() => applyBalance(), 50);
   // after the same meal twice, offer a one-tap button
   const quick = quickList(), n = list.filter(m => normName(m.name) === normName(meal.name)).length;
   if(n >= 2 && !quick.some(q => normName(q.name) === normName(meal.name)) && !(read(K.foodSeen, []) || []).includes(normName(meal.name))){
@@ -2398,27 +2407,70 @@ function saveMeal(meal){
     }, 400);
   }
 }
+/* Voice typing into a text box (Chrome/Android; free, uses the phone's speech recognition). */
+function dictate(input, btn, after){
+  const SRX = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SRX){ toast("Voice input isn't available here — type it instead."); return; }
+  try{
+    const rec = new SRX(); rec.lang = voice.lang === "de" ? "de-DE" : "en-US"; rec.interimResults = false;
+    const label = btn.textContent; btn.textContent = "…";
+    rec.onresult = e => { input.value = (input.value ? input.value + " " : "") + e.results[0][0].transcript; input.dispatchEvent(new Event("input")); after && after(); };
+    rec.onend = () => { btn.textContent = label; }; rec.onerror = () => { btn.textContent = label; toast("Couldn't hear that — try again or type it."); };
+    rec.start();
+  }catch{ toast("Voice input isn't available here — type it instead."); }
+}
 function logSheet({name, items, slot, source, note, question, date}){
   const its = items.map(x => x.base ? {...x} : asItem(x, x.qty || 1));
   let mealName = name || its.map(x => x.name).join(" + "), mealSlot = slot || slotForNow();
+  let curNote = note || null, curQuestion = question || null, askOpen = !!question, asking = false;
   sheet((card, close) => {
     const body = h("div");
+    /* Answer the coach's question — or add more to this meal by describing it. */
+    const ansIn = h("input", {class:"text-input", placeholder:"e.g. toast with butter and a coffee", "aria-label":"Your answer", autocomplete:"off"});
+    const ansBtn = h("button", {class:"btn sm primary"}, "Add");
+    const micBtn = h("button", {class:"icon-btn", "aria-label":"Say it", onclick:() => dictate(ansIn, micBtn)}, "🎙");
+    ansIn.addEventListener("keydown", e => { if(e.key === "Enter") ansBtn.click(); });
+    ansBtn.addEventListener("click", async () => {
+      const ans = ansIn.value.trim(); if(!ans || asking) return;
+      asking = true; ansBtn.textContent = "Adding…"; ansBtn.disabled = true;
+      const already = its.map(itemValues).map(v => `${v.name} (${v.serving}${v.qty !== 1 ? ` ×${v.qty}` : ""}, ${r0(v.kcal)} kcal)`).join("; ");
+      const text = `Follow-up for a ${SLOTS[mealSlot].toLowerCase()} I'm logging. Already in it: ${already}. ` +
+        (curQuestion ? `You asked: "${curQuestion}". My answer: "${ans}". ` : `Also add: "${ans}". `) +
+        "List ONLY the foods to ADD from my answer — do not repeat foods already in the meal. If my answer adds nothing (like \"no\" or \"that's all\"), return an empty meals list and a short friendly note.";
+      try{
+        const data = await foodAI("/log", {text, context:foodContext()});
+        const added = (data.meals || []).flatMap(m => m.items || []).filter(x => x && x.name);
+        added.forEach(x => its.push(asItem({name:x.name, serving:x.serving || "estimate", kcal:+x.kcal||0, protein:+x.protein||0, carbs:+x.carbs||0, fat:+x.fat||0, fiber:+x.fiber||0, satFat:+x.satFat||0, sodium:+x.sodium||0})));
+        curNote = data.note || (added.length ? `Added ${added.map(x => x.name).join(", ")}.` : "Got it — nothing added.");
+        curQuestion = added.length ? (data.question || null) : null;
+        askOpen = !!curQuestion; ansIn.value = "";
+        if(added.length && !name) mealName = its.map(x => x.name).join(" + ");
+        nameIn.value = mealName;
+      }catch(err){ curNote = aiTrouble(err); }
+      asking = false; ansBtn.textContent = "Add"; ansBtn.disabled = false; paint();
+    });
+    const answerBox = () => askOpen || curQuestion
+      ? h("div", {class:"answer-box"},
+          curQuestion ? h("p", {class:"small food-q"}, "🤔 " + curQuestion) : h("p", {class:"small"}, "Anything else in this meal? Describe it:"),
+          h("div", {class:"answer-row"}, ansIn, micBtn, ansBtn),
+          curQuestion ? h("div", {class:"chip-line"}, h("button", {class:"chip", onclick:() => { curQuestion = null; askOpen = false; curNote = "Got it."; paint(); }}, "No, that's all")) : null)
+      : h("button", {class:"linkish", onclick:() => { askOpen = true; paint(); setTimeout(() => ansIn.focus(), 50); }}, "💬 Add more by describing it");
     const paint = () => {
       const vals = its.map(itemValues), t = totals(vals);
       body.replaceChildren(
-        note ? h("p", {class:"small food-note"}, note) : null,
-        question ? h("p", {class:"small food-q"}, "🤔 " + question) : null,
+        curNote ? h("p", {class:"small food-note"}, curNote) : null,
         h("div", {class:"pick slot-pick", role:"group"}, Object.entries(SLOTS).map(([k,v]) => h("button", {"aria-pressed":String(mealSlot === k), onclick:() => { mealSlot = k; paint(); }}, v))),
         ...its.map((it, i) => { const v = vals[i];
           const kIn = h("input", {class:"kcal-in", inputmode:"numeric", value:String(r0(v.kcal)), "aria-label":`Calories for ${it.name}`});
-          kIn.addEventListener("change", () => { const nv = Number(kIn.value); if(nv > 0 && v.kcal > 0){ const f = nv / (it.base.kcal * it.qty); ["kcal","protein","carbs","fat","fiber"].forEach(k => it.base[k] *= f); } else if(nv > 0){ it.base.kcal = nv / it.qty; } paint(); });
+          kIn.addEventListener("change", () => { const nv = Number(kIn.value); if(nv > 0 && v.kcal > 0){ const f = nv / (it.base.kcal * it.qty); NUTR.forEach(k => it.base[k] *= f); } else if(nv > 0){ it.base.kcal = nv / it.qty; } paint(); });
           return h("div", {class:"food-item"},
             h("div", {class:"fi-name"}, h("b", null, it.name), h("span", null, `${it.qty === 1 ? "" : `${+it.qty.toFixed(2)} × `}${it.serving} · ${r0(v.protein)} g protein`)),
             h("div", {class:"fi-qty"}, h("button", {class:"icon-btn", "aria-label":"Less", onclick:() => { it.qty = Math.max(0.25, it.qty - (it.qty > 1 ? 0.5 : 0.25)); paint(); }}, "−"),
               h("span", null, `×${+it.qty.toFixed(2)}`), h("button", {class:"icon-btn", "aria-label":"More", onclick:() => { it.qty = Math.min(10, it.qty + (it.qty >= 1 ? 0.5 : 0.25)); paint(); }}, "+")),
             h("label", {class:"fi-kcal"}, kIn, h("span", null, "kcal")),
             its.length > 1 ? h("button", {class:"icon-btn plain", "aria-label":`Remove ${it.name}`, onclick:() => { its.splice(i, 1); paint(); }}, "✕") : null); }),
-        h("button", {class:"linkish", onclick:() => searchSheet(f => { its.push(asItem(f)); paint(); }, true)}, "+ Add another food"),
+        answerBox(),
+        h("button", {class:"linkish", onclick:() => searchSheet(f => { its.push(asItem(f)); paint(); }, true)}, "+ Add from the food list"),
         h("div", {class:"food-total"}, h("b", null, `${r0(t.kcal)} kcal`), h("span", null, `P ${r0(t.protein)} g · C ${r0(t.carbs)} g · F ${r0(t.fat)} g`)));
     };
     const nameIn = h("input", {class:"text-input", value:mealName, maxlength:"60", "aria-label":"Meal name"});
@@ -2428,8 +2480,8 @@ function logSheet({name, items, slot, source, note, question, date}){
       const t = totals(vals), day = date || foodDay || dayKey();
       const when = day === dayKey() ? new Date() : new Date(day + "T" + ({breakfast:"08:00", lunch:"13:00", dinner:"19:30", snack:"16:00"}[mealSlot]));
       saveMeal({id:"m" + Date.now().toString(36) + Math.random().toString(36).slice(2,5), date:day, time:when.toISOString(), slot:mealSlot,
-        name:(mealName || vals.map(x => x.name).join(" + ")).trim(), items:vals.map(v => ({...v, kcal:r0(v.kcal), protein:+v.protein.toFixed(1), carbs:+v.carbs.toFixed(1), fat:+v.fat.toFixed(1), fiber:+v.fiber.toFixed(1)})),
-        kcal:r0(t.kcal), protein:+t.protein.toFixed(1), carbs:+t.carbs.toFixed(1), fat:+t.fat.toFixed(1), fiber:+t.fiber.toFixed(1), source:source || "quick"});
+        name:(mealName || vals.map(x => x.name).join(" + ")).trim(), items:vals.map(v => ({name:v.name, serving:v.serving, qty:v.qty, ...roundMeal(v)})),
+        ...roundMeal(t), source:source || "quick"});
       close(); toast(`Logged: ${r0(t.kcal)} kcal, ${r0(t.protein)} g protein.`); if(view === "food" || view === "today") go(view);
     }}, "Log it ✓");
     card.append(h("h2", null, "Log a meal"), nameIn, body, go1);
@@ -2472,7 +2524,7 @@ function searchSheet(onPick, nested){
 function mealsFromAI(data, source){
   const meals = (data.meals || []).filter(m => m.items && m.items.length).map(m => ({
     name:m.name, slot:SLOTS[m.slot] ? m.slot : null,
-    items:m.items.map(x => ({name:x.name, serving:x.serving || "estimate", kcal:+x.kcal||0, protein:+x.protein||0, carbs:+x.carbs||0, fat:+x.fat||0, fiber:+x.fiber||0}))}));
+    items:m.items.map(x => ({name:x.name, serving:x.serving || "estimate", kcal:+x.kcal||0, protein:+x.protein||0, carbs:+x.carbs||0, fat:+x.fat||0, fiber:+x.fiber||0, satFat:+x.satFat||0, sodium:+x.sodium||0}))}));
   if(!meals.length){ toast(data.question || "I couldn't work that out — try a few more words."); return; }
   if(meals.length === 1) logSheet({...meals[0], source, note:data.note, question:data.question});
   else batchSheet(meals, source, data.note);
@@ -2491,7 +2543,7 @@ function batchSheet(meals, source, note){
           const slotTime = {breakfast:"08:00", lunch:"13:00", dinner:"19:30", snack:"16:00"}[m.slot || "snack"];
           const at = day === dayKey() && (m.slot || "snack") === slotForNow() ? new Date() : new Date(day + "T" + slotTime);
           saveMeal({id:"m" + Date.now().toString(36) + i, date:day, time:at.toISOString(), slot:m.slot || "snack", name:m.name, items:vals,
-            kcal:r0(t.kcal), protein:+t.protein.toFixed(1), carbs:+t.carbs.toFixed(1), fat:+t.fat.toFixed(1), fiber:+t.fiber.toFixed(1), source}); });
+            ...roundMeal(t), source}); });
         close(); toast(`Logged ${n} meal${n === 1 ? "" : "s"}.`); if(view === "food") go("food");
       }}, "Log selected"));
     paint();
@@ -2590,12 +2642,120 @@ function ideasCard(){
   return box;
 }
 
+/* ---------- water ---------- */
+const waterOn = key => (read(K.water, {}) || {})[key] || 0;
+function addWater(key, ml){ const w = read(K.water, {}) || {}; w[key] = Math.max(0, (w[key] || 0) + ml); write(K.water, w); }
+
+/* ---------- energy out + automatic balancing ----------
+   Target stays fixed. Calories burned in training are shown separately.
+   When food runs over the target on a fat-loss (or maintain) goal, steady cardio is added to today's workout
+   automatically — capped at 40 min, never on a lighter/recovery day, and the rest is balanced over the week. */
+const balances = () => read(K.balance, {}) || {};
+const saveBalance = (key, b) => { const all = balances(); all[key] = b; write(K.balance, all); };
+function steadyChoice(){
+  const areas = (personal && personal.areas) || [];
+  if(plan.equipment === "bodyweight" || areas.includes("knees") || areas.includes("ankles")) return "Brisk Walk or Easy Jog";
+  return "StairMaster Steady State";
+}
+function burnRate(){ const w = foodTargets().weight; return 5.5 * w / 80; }          // kcal per minute of steady cardio (estimate)
+function burnedOn(key){
+  const done = workoutsOn(key).reduce((a, x) => a + x.estimatedBurn, 0);
+  const b = balances()[key];
+  const walk = b && b.mode === "walk" && b.done ? r0(b.minutes * burnRate()) : 0;
+  const live = state && dayKey(new Date(state.startTime)) === key ? r0(Math.min(180, (Date.now() - state.startTime) / 60000) * 6.5 * foodTargets().weight / 80) : 0;
+  return {training:done, walk, live, total:done + walk};
+}
+function balancePlan(key = dayKey()){
+  const t = foodTargets(), eaten = totals(mealsOn(key)).kcal, over = r0(eaten - t.kcal);
+  const tier = state && state.adaptation ? state.adaptation.tier : null;
+  const base = {eaten:r0(eaten), target:t.kcal, over, minutes:0, kcal:0};
+  if(over < 150) return {...base, reason:over > 0 ? "small" : "under"};
+  if(!["fat_loss","maintain"].includes(t.goal)) return {...base, reason:"goal"};
+  if(tier === "recovery" || tier === "easy") return {...base, reason:"light-day"};
+  const extra = Math.min(over, 400), minutes = Math.min(40, Math.max(10, Math.round(extra / burnRate() / 5) * 5));
+  return {...base, minutes, kcal:r0(minutes * burnRate()), rest:Math.max(0, over - r0(minutes * burnRate())), reason:"add"};
+}
+function balanceTime(key){
+  const last = mealsOn(key).map(m => new Date(m.time)).sort((a,b) => b - a)[0] || new Date();
+  const at = new Date(Math.max(Date.now(), last.getTime() + 75 * 60000));
+  if(at.getHours() >= 22 || at.getHours() < 5) return "tomorrow morning";
+  const m = Math.round(at.getMinutes() / 15) * 15; at.setMinutes(m % 60); if(m === 60) at.setHours(at.getHours() + 1);
+  return `around ${at.toTimeString().slice(0,5)}`;
+}
+function balanceExercise(minutes){
+  const src = findEx(steadyChoice()); if(!src) return null;
+  const x = clone(src); x.sets = 1; x.reps = `${minutes} min easy-steady`; x.rest = 0; x.balance = true;
+  return x;
+}
+/* Called whenever food changes and when a workout starts. Updates today's session automatically. */
+function applyBalance(quiet){
+  const key = dayKey(), p = balancePlan(key), prev = balances()[key] || {};
+  if(prev.removed) return p;
+  const trainedToday = workoutsOn(key).length > 0;
+  const inSession = state && dayKey(new Date(state.startTime)) === key;
+  const mode = inSession ? "session" : trainedToday ? "walk" : "next";
+  if(!p.minutes){
+    if(prev.minutes && inSession){ state.exercises = state.exercises.filter(x => !(x.balance && !x.sets.some(q => q.done))); persist(); }
+    saveBalance(key, {...prev, minutes:0, kcal:0, mode, reason:p.reason});
+    return p;
+  }
+  if(inSession){
+    const existing = state.exercises.find(x => x.balance);
+    if(existing){ existing.reps = `${p.minutes} min easy-steady`; existing.sets.forEach(q => { if(!q.done) q.r = ""; }); }
+    else {
+      const x = balanceExercise(p.minutes);
+      if(x){ const at = state.exercises.findIndex(e => e.block === "Flexibility"); const row = {...x, skipped:false, rpe:null, sets:[{w:"", r:"", done:false}]};
+        at >= 0 ? state.exercises.splice(at, 0, row) : state.exercises.push(row); }
+    }
+    persist();
+  }
+  const changed = prev.minutes !== p.minutes || prev.mode !== mode;
+  saveBalance(key, {minutes:p.minutes, kcal:p.kcal, mode, over:p.over, done:prev.mode === mode ? !!prev.done : false, reason:"add", time:mode === "walk" ? balanceTime(key) : null});
+  if(changed && !quiet) toast(mode === "session" ? `Added ${p.minutes} min steady cardio to today's workout to balance ~${p.over} kcal.`
+    : mode === "next" ? `${p.minutes} min steady cardio will be added to today's workout.` : `Balance: ${p.minutes}-min brisk walk ${balanceTime(key)}.`);
+  return p;
+}
+function balanceCard(key){
+  if(key !== dayKey()) return null;
+  const b = balances()[key] || {}, p = balancePlan(key), burn = burnedOn(key), t = foodTargets();
+  const lines = [], actions = [];
+  const walkName = steadyChoice() === "Brisk Walk or Easy Jog" ? "brisk walk" : "steady cardio";
+  if(b.removed) lines.push("Balancing is off for today. The weekly average takes care of it.");
+  else if(p.reason === "add" && b.mode === "session") lines.push(`✅ Added ${b.minutes} min ${walkName} to the workout you're doing now (~${b.kcal} kcal).`);
+  else if(p.reason === "add" && b.mode === "next") lines.push(`✅ ${b.minutes} min ${walkName} will be added automatically when you start today's workout (~${b.kcal} kcal).`);
+  else if(p.reason === "add" && b.mode === "walk") lines.push(b.done ? `✅ Balance walk done — ${b.minutes} min (~${b.kcal} kcal). Nice.` : `🚶 You've trained today, so a ${b.minutes}-min ${walkName} ${b.time || balanceTime(key)} balances it (~${b.kcal} kcal).`);
+  else if(p.reason === "light-day") lines.push(`You're ~${p.over} kcal over, but today is a lighter day — no extra exercise. The week will balance it.`);
+  else if(p.reason === "goal") lines.push(p.over > 0 ? `~${p.over} kcal over target — that's fine while you're building muscle.` : "");
+  else if(p.reason === "small") lines.push("Right around target. 👌");
+  else lines.push(`${r0(t.kcal - p.eaten).toLocaleString()} kcal left today.`);
+  if(p.reason === "add" && p.rest > 50 && !b.removed) lines.push(`The other ~${p.rest} kcal is balanced over the rest of the week — no need to chase it today.`);
+  if(p.reason === "add" && !b.removed){
+    if(b.mode === "walk" && !b.done) actions.push(h("button", {class:"btn sm primary", onclick:() => { saveBalance(key, {...balances()[key], done:true}); toast("Logged. Well done."); go(view); }}, "Done ✓"));
+    actions.push(h("button", {class:"btn sm", onclick:() => { saveBalance(key, {...balances()[key], removed:true, minutes:0});
+      if(state){ state.exercises = state.exercises.filter(x => !(x.balance && !x.sets.some(q => q.done))); persist(); }
+      toast("Removed for today."); go(view); }}, "Not today"));
+  }
+  const net = p.eaten - burn.total;
+  return h("section", {class:"panel section balance-card"},
+    h("h2", null, "Today's balance"),
+    h("div", {class:"bal-row"},
+      h("div", null, h("b", null, p.eaten.toLocaleString()), h("span", null, "eaten")),
+      h("div", null, h("b", null, burn.total + burn.live ? `−${(burn.total + burn.live).toLocaleString()}` : "0"), h("span", null, burn.live ? "burned (live)" : "burned in training")),
+      h("div", null, h("b", null, (net - burn.live).toLocaleString()), h("span", null, "net kcal")),
+      h("div", null, h("b", null, t.kcal.toLocaleString()), h("span", null, "target"))),
+    ...lines.filter(Boolean).map(l => h("p", {class:"small"}, l)),
+    actions.length ? h("div", {class:"row2"}, ...actions) : null,
+    h("p", {class:"tiny muted"}, "Burned calories are estimates from session length, type and your weight."));
+}
+
 /* ---------- screens ---------- */
-function macroBar(label, val, target, unit = "g"){
+/* kind "limit": turns orange when over (calories, carbs, fat, sat fat, salt); "aim": more is good (protein, fiber, water). */
+function macroBar(label, val, target, unit = "g", kind = "limit"){
   const pct = target ? Math.min(100, 100 * val / target) : 0;
   const fill = h("i"); fill.style.width = `${pct}%`;          // set via CSSOM (inline style attributes are blocked by the CSP)
-  if(target && val > target * 1.1) fill.classList.add("over");
-  return h("div", {class:"macro"}, h("div", {class:"macro-top"}, h("span", null, label), h("b", null, `${r0(val)} / ${r0(target)} ${unit}`)),
+  if(kind === "limit" && target && val > target * 1.05) fill.classList.add("over");
+  const fmt = n => unit === "L" ? (Math.round(n * 100) / 100).toString() : r0(n).toLocaleString();
+  return h("div", {class:"macro"}, h("div", {class:"macro-top"}, h("span", null, label), h("b", null, `${fmt(val)} / ${fmt(target)} ${unit}`)),
     h("div", {class:"macro-bar"}, fill));
 }
 function kcalRing(val, target){
@@ -2642,8 +2802,17 @@ function renderFood(m){
   const wo = workoutsOn(foodDay);
   m.append(h("section", {class:"panel food-summary"},
     h("div", {class:"fs-row"}, kcalRing(tt.kcal, t.kcal),
-      h("div", {class:"fs-macros"}, macroBar("Protein", tt.protein, t.protein), t.keto ? macroBar("Net carbs", tt.carbs - tt.fiber, t.carbs) : macroBar("Carbs", tt.carbs, t.carbs), macroBar("Fat", tt.fat, t.fat))),
-    wo.length ? h("p", {class:"tiny muted"}, `🏋 ${wo.map(x => `${x.name} · ~${x.estimatedBurn} kcal`).join(", ")} — already counted in your target.`) : null));
+      h("div", {class:"fs-macros"}, macroBar("Protein", tt.protein, t.protein, "g", "aim"), t.keto ? macroBar("Net carbs", tt.carbs - tt.fiber, t.carbs) : macroBar("Carbs", tt.carbs, t.carbs), macroBar("Fat", tt.fat, t.fat))),
+    h("details", {class:"more-nutr"}, h("summary", null, "Fiber, saturated fat & salt"),
+      macroBar("Fiber (aim for)", tt.fiber, t.fiber, "g", "aim"), macroBar("Saturated fat (limit)", tt.satFat, t.satFat), macroBar("Sodium (limit)", tt.sodium, t.sodium, "mg")),
+    wo.length ? h("p", {class:"tiny muted"}, `🔥 Burned in training: ${wo.map(x => `${x.name} ~${x.estimatedBurn} kcal`).join(", ")}`) : null));
+  const wml = waterOn(foodDay);
+  const wbar = h("div", {class:"macro-bar"}, (() => { const i = h("i"); i.style.width = `${Math.min(100, 100 * wml / t.water)}%`; return i; })());
+  m.append(h("section", {class:"panel section water-card"}, h("div", {class:"spread"}, h("h2", null, "💧 Water"), h("span", {class:"small muted"}, `${Math.round(wml/10)/100} / ${Math.round(t.water/100)/10} L`)), wbar,
+    h("div", {class:"row3"}, h("button", {class:"btn sm", onclick:() => { addWater(foodDay, -250); go("food"); }, disabled:wml <= 0}, "−"),
+      h("button", {class:"btn sm primary", onclick:() => { addWater(foodDay, 250); go("food"); }}, "+ Glass 250 ml"),
+      h("button", {class:"btn sm primary", onclick:() => { addWater(foodDay, 500); go("food"); }}, "+ Bottle 500 ml"))));
+  const bc = balanceCard(foodDay); if(bc) m.append(bc);
   m.append(h("div", {class:"log-actions"},
     h("button", {class:"la", onclick:photoFlow}, h("span", null, "📷"), "Photo"),
     h("button", {class:"la", onclick:describeSheet}, h("span", null, "💬"), "Describe"),
@@ -2676,14 +2845,17 @@ function mealMenu(x){
     h("ul", {class:"small"}, x.items.map(i => h("li", null, `${i.name} — ${r0(i.kcal)} kcal`))),
     h("button", {class:"btn block section", onclick:() => { close(); logSheet({name:x.name, items:x.items.map(i => asItem(i, 1)), slot:slotForNow(), source:"template", date:dayKey()}); }}, "Log again today"),
     !quickList().some(q => normName(q.name) === normName(x.name)) ? h("button", {class:"btn block section", onclick:() => { addQuick({name:x.name, items:x.items}); close(); toast("Saved as a quick-add."); go("food"); }}, "★ Save as quick-add") : null,
-    h("button", {class:"btn danger sm block section", onclick:() => { saveFoodLog(foodLog().filter(y => y.id !== x.id)); close(); toast("Removed."); go(view); }}, "Remove")));
+    h("button", {class:"btn danger sm block section", onclick:() => { saveFoodLog(foodLog().filter(y => y.id !== x.id)); close(); applyBalance(true); toast("Removed."); go(view); }}, "Remove")));
 }
 /* Small card on Today */
 function foodTodayCard(){
   const t = foodTargets(), tt = totals(mealsOn(dayKey()));
   return h("section", {class:"panel section food-today", onclick:() => { foodDay = dayKey(); go("food"); }, role:"button", tabindex:"0"},
     h("div", {class:"spread"}, h("h2", null, "Food today"), h("span", {class:"linkish"}, "Log ›")),
-    macroBar("Calories", tt.kcal, t.kcal, "kcal"), macroBar("Protein", tt.protein, t.protein));
+    macroBar("Calories", tt.kcal, t.kcal, "kcal"), macroBar("Protein", tt.protein, t.protein, "g", "aim"),
+    (() => { const b = burnedOn(dayKey()), bl = balances()[dayKey()] || {};
+      return h("p", {class:"tiny muted"}, [b.total ? `🔥 ~${b.total} kcal burned in training` : null, `💧 ${(waterOn(dayKey())/1000).toFixed(1)} / ${(t.water/1000).toFixed(1)} L`,
+        bl.minutes && !bl.removed ? `➕ ${bl.minutes} min balance cardio ${bl.mode === "walk" ? (bl.done ? "done" : "today") : "added to today's workout"}` : null].filter(Boolean).join(" · ")); })());
 }
 
 /* ---------- boot ---------- */

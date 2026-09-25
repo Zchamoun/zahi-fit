@@ -96,3 +96,26 @@ const FOOD_ROWS = [
 const FOODS = FOOD_ROWS.map((r, i) => ({id:"f" + i, name:r[0], serving:r[1], kcal:r[2], protein:r[3], carbs:r[4], fat:r[5], fiber:r[6], tags:r[7].split(" ")}));
 /* The quick-add buttons everyone starts with (favourites are added after two logs of the same meal). */
 const DEFAULT_QUICK = ["Sandwich (chicken or turkey)", "Bowl of rice + protein", "Coffee + pastry", "Pizza slice", "Eggs + toast", "Protein shake", "Grilled chicken + veggies", "Chicken shawarma wrap"];
+
+/* v5.1: saturated fat (g) and sodium (mg) per serving — typical values from standard nutrition tables. */
+const FOOD_SAT_SODIUM = {
+  "Sandwich (chicken or turkey)":[3,1100], "Bowl of rice + protein":[4,900], "Coffee + pastry":[11,350], "Pizza slice":[5,640],
+  "Eggs + toast":[4.5,450], "Protein shake":[1,150], "Grilled chicken + veggies":[4,500], "Steak + sweet potato":[15,450],
+  "Salad with chicken":[5,700], "Greek yogurt + granola":[3,120], "Protein shake + banana":[1,150], "Oatmeal with milk + berries":[3,110],
+  "Tuna salad":[3,600], "Salmon + rice + greens":[5,400], "Chickpea curry + quinoa":[5,800], "Tofu stir-fry + rice":[2.5,900],
+  "Burger + fries":[15,1500], "Pad thai (chicken)":[5,1800], "Chicken shawarma wrap":[6,1300], "Chicken shawarma plate":[8,1600],
+  "Falafel wrap":[3,1100], "Hummus":[1.5,300], "Tabbouleh":[1.5,250], "Fattoush":[1.5,400], "Chicken machboos / kabsa":[8,1200],
+  "Lamb mandi":[16,1300], "Grilled mixed kebab plate":[13,1200], "Manakish zaatar":[3,700], "Cheese manakish":[12,900],
+  "Foul medames":[2,700], "Labneh with olive oil":[5,200], "Dates":[0,1], "Karak tea":[3,60], "Luqaimat":[3,150],
+  "Grilled chicken breast":[1.5,110], "Chicken thigh (grilled)":[5,140], "Sirloin steak":[10,120], "Ribeye steak":[23,140],
+  "Minced beef (lean, cooked)":[8,100], "Salmon fillet":[4,90], "White fish (hammour / cod)":[0.4,120], "Shrimp":[0.4,170],
+  "Tuna (canned in water)":[0.3,300], "Eggs":[3,140], "Egg whites":[0,220], "Greek yogurt (plain, 2%)":[2.5,70], "Cottage cheese":[3,700],
+  "Tofu (firm)":[2,20], "Lentils (cooked)":[0.1,5], "Chickpeas (cooked)":[0.4,10], "Protein bar":[3,200],
+  "White rice (cooked)":[0.1,2], "Brown rice (cooked)":[0.4,10], "Pasta (cooked)":[0.3,2], "Sweet potato":[0,70], "Potatoes (boiled)":[0,10],
+  "Arabic bread (khubz)":[0.3,450], "Toast (whole wheat)":[0.4,300], "Oats (dry)":[0.5,2], "Quinoa (cooked)":[0.5,13], "French fries":[2.5,250],
+  "Banana":[0.1,1], "Apple":[0,2], "Berries":[0,1], "Orange":[0,0], "Mixed vegetables":[0,60], "Green salad (no dressing)":[0,30],
+  "Avocado":[2,7], "Olive oil":[2,0], "Almonds":[1.1,0], "Peanut butter":[3,140], "Cheese (cheddar)":[6,190], "Halloumi (grilled)":[10,800],
+  "Milk (full fat)":[4.5,105], "Cappuccino":[3.5,100], "Latte":[4,140], "Orange juice":[0,2], "Soft drink":[0,45],
+  "Chocolate bar":[8,35], "Ice cream":[9,100], "Croissant":[8,300]
+};
+FOODS.forEach(f => { const x = FOOD_SAT_SODIUM[f.name] || [0, 0]; f.satFat = x[0]; f.sodium = x[1]; });

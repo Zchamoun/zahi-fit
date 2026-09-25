@@ -508,7 +508,7 @@ body.locked .tabs{display:none}
 .macro-top{display:flex;justify-content:space-between;font-size:13.5px}
 .macro-top b{font-weight:800;font-variant-numeric:tabular-nums}
 .macro-bar{height:8px;border-radius:4px;background:var(--soft2);overflow:hidden;margin-top:4px}
-.macro-bar i{display:block;height:100%;background:var(--orange);border-radius:4px}
+.macro-bar i{display:block;height:100%;background:var(--teal);border-radius:4px}
 .log-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
 .la{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 6px;border:0;border-radius:var(--r-lg);background:var(--card);box-shadow:var(--shadow);font-weight:800;font-size:14px}
 .la span{font-size:24px}
@@ -551,4 +551,20 @@ body.locked .tabs{display:none}
 .batch-row b{display:block}.batch-row span{font-size:12.5px;color:var(--muted)}
 .food-today{cursor:pointer}
 @media (max-width:360px){.tab{font-size:10.5px}}
-.macro-bar i.over{background:var(--teal)}
+.macro-bar i.over{background:var(--orange)}
+
+/* v5.1: balance, water, nutrients */
+.more-nutr{margin-top:10px}
+.more-nutr summary{font-size:13.5px;font-weight:700;color:var(--teal);cursor:pointer;list-style:none}
+.more-nutr summary::-webkit-details-marker{display:none}
+.row3{display:grid;grid-template-columns:52px 1fr 1fr;gap:8px;margin-top:10px}
+.balance-card .bal-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;margin:8px 0}
+.balance-card .bal-row b{display:block;font:700 19px var(--num)}
+.balance-card .bal-row span{font-size:11.5px;color:var(--muted)}
+.balance-card .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.answer-box{margin-top:10px;padding:12px;border-radius:14px;background:var(--soft)}
+.answer-box .text-input{margin-top:6px;background:var(--card)}
+.answer-row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center}
+.answer-row .text-input{margin-top:0}
+.chip-line{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.water-card .macro-bar{margin-top:10px}
