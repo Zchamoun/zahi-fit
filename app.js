@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "5.3.2";
+const VERSION = "5.3.3";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -609,7 +609,7 @@ const voice = {
   slots: {male:parseSlot(localStorage.getItem(K.voiceMale)), female:parseSlot(localStorage.getItem(K.voiceFemale))}
 };
 let actx = null;
-function unlockAudio(){ try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if(actx.state === "suspended") actx.resume(); }catch{} }
+function unlockAudio(){ try{ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if(actx.state === "suspended"){ const p = actx.resume(); if(p && p.catch) p.catch(() => {}); } }catch{} }
 function beep(f, d, v){
   if(!voice.sounds) return; unlockAudio(); if(!actx) return;
   const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
@@ -621,7 +621,11 @@ function beep(f, d, v){
    A normal media track keeps playing (like music). So each countdown is also rendered as one audio track —
    silence with the beeps at the exact moments — and played through an <audio> element with lock-screen controls. */
 const LOCK_SOUND = "zahiFitLockSoundV532";
-const lockSoundOn = () => localStorage.getItem(LOCK_SOUND) !== "0";
+/* mix   = beeps pre-scheduled in the phone's sound engine: plays OVER your music (default)
+   track = one audio track like a music app: most reliable when locked, but pauses your music
+   off   = beeps only while the app is on screen */
+const lockMode = () => { const v = localStorage.getItem(LOCK_SOUND); return v === "0" ? "off" : v === "track" ? "track" : "mix"; };
+const lockSoundOn = () => lockMode() !== "off";
 const TRK_RATE = 8000, TRK_MAX = 3600;                     // 8 kHz mono 8-bit: ~8 KB per second, max 60 min per track
 const trk = {el:null, url:null, kind:null, t0:0, playing:false, blocked:false, capped:false, onEnded:null};
 /* Adds a sine beep straight into the 8-bit WAV bytes (after the 44-byte header), so no big float buffer is needed. */
@@ -633,16 +637,18 @@ function trkTone(buf, t, f, d, v){
     buf[k] = Math.max(0, Math.min(255, buf[k] + Math.round(127 * v * env * Math.sin(w * i))));
   }
 }
-const TRK_PAT = {
-  go:     (b, t) => { trkTone(b, t, 520, .12, .55); trkTone(b, t + .14, 660, .12, .6); trkTone(b, t + .28, 880, .22, .65); },
-  last:   (b, t) => { TRK_PAT.go(b, t); TRK_PAT.go(b, t + .6); },
-  easy:   (b, t) => { trkTone(b, t, 880, .14, .55); trkTone(b, t + .17, 660, .26, .55); },
-  start:  (b, t) => { trkTone(b, t, 520, .12, .55); trkTone(b, t + .14, 660, .2, .6); },
-  switch: (b, t) => { trkTone(b, t, 740, .12, .6); trkTone(b, t + .2, 740, .12, .6); },
-  warn:   (b, t) => { trkTone(b, t, 780, .11, .5); trkTone(b, t + .18, 780, .11, .5); },
-  pip:    (b, t) => trkTone(b, t, 880, .09, .5),
-  done:   (b, t) => { trkTone(b, t, 620, .13, .6); trkTone(b, t + .15, 820, .14, .6); trkTone(b, t + .32, 1040, .35, .65); }
+/* Each cue = notes [offset s, Hz, length s, loudness] — used by both the track and the scheduled beeps. */
+const CUE_NOTES = {
+  go:     [[0, 520, .12, .55], [.14, 660, .12, .6], [.28, 880, .22, .65]],
+  last:   [[0, 520, .12, .55], [.14, 660, .12, .6], [.28, 880, .22, .65], [.6, 520, .12, .55], [.74, 660, .12, .6], [.88, 880, .22, .65]],
+  easy:   [[0, 880, .14, .55], [.17, 660, .26, .55]],
+  start:  [[0, 520, .12, .55], [.14, 660, .2, .6]],
+  switch: [[0, 740, .12, .6], [.2, 740, .12, .6]],
+  warn:   [[0, 780, .11, .5], [.18, 780, .11, .5]],
+  pip:    [[0, 880, .09, .5]],
+  done:   [[0, 620, .13, .6], [.15, 820, .14, .6], [.32, 1040, .35, .65]]
 };
+const TRK_PAT = Object.fromEntries(Object.entries(CUE_NOTES).map(([k, notes]) => [k, (b, t) => notes.forEach(([o, f, d, v]) => trkTone(b, t + o, f, d, v))]));
 function trkRender(events, total){
   const n = Math.ceil(Math.min(total, TRK_MAX) * TRK_RATE) + TRK_RATE / 2;
   const out = new Uint8Array(44 + n), dv = new DataView(out.buffer), str = (o, x) => { for(let i = 0; i < x.length; i++) out[o + i] = x.charCodeAt(i); };
@@ -685,6 +691,59 @@ function trkPlay(kind, plan, meta){
   if(meta) trkMeta(meta.title, meta.artist, meta.handlers);
   return true;
 }
+/* ---- "Over my music": every beep is scheduled ahead on the audio clock, so it plays on time even if the app
+   is asleep, and it mixes with music (the phone's sound engine doesn't take the speaker from Spotify & co.).
+   A 25 Hz tone at -60 dB (too low to hear) runs meanwhile, so the phone keeps treating the app as "playing sound"
+   and doesn't put it to sleep. */
+const sched = {kind:null, nodes:[], t0:0, wall:0, blocked:false, resync:null, warned:false};
+function schedPlay(kind, plan){
+  schedStop();
+  unlockAudio(); if(!actx) return false;
+  const t0 = actx.currentTime + 0.06, out = actx.createGain(); out.gain.value = 0.9; out.connect(actx.destination);
+  sched.kind = kind; sched.t0 = t0; sched.wall = Date.now() + 60; sched.blocked = false; sched.resync = plan.resync || null; sched.out = out; sched.ev = plan.ev;
+  if(!actx._zfWatch){ actx._zfWatch = true;                                   // sound engine woke up later (after a tap): rebuild the schedule
+    actx.addEventListener("statechange", () => { if(actx.state === "running" && sched.kind && sched.blocked && sched.resync){ sched.blocked = false; sched.resync(); } }); }
+  plan.ev.forEach(e => (CUE_NOTES[e.kind] || []).forEach(([o, f, d, v]) => {
+    const at = t0 + e.t + o; if(at < actx.currentTime) return;
+    const osc = actx.createOscillator(), g = actx.createGain();
+    osc.type = "sine"; osc.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(v, at + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, at + d);
+    osc.connect(g); g.connect(out); osc.start(at); osc.stop(at + d + 0.02); sched.nodes.push(osc);
+  }));
+  const hum = actx.createOscillator(), hg = actx.createGain();
+  hum.frequency.value = 25; hg.gain.value = 0.001; hum.connect(hg); hg.connect(out); hum.start(t0); hum.stop(t0 + plan.total + 2); sched.nodes.push(hum);
+  setTimeout(() => { if(sched.kind === kind && actx.state !== "running"){ sched.blocked = true; if(plan.onBlocked) plan.onBlocked(); } }, 450);
+  return true;
+}
+function schedStop(kind){
+  if(kind && sched.kind !== kind) return;
+  sched.nodes.forEach(n => { try{ n.stop(0); }catch{} try{ n.disconnect(); }catch{} });
+  if(sched.out){ try{ sched.out.disconnect(); }catch{} }
+  sched.nodes = []; sched.kind = null; sched.resync = null; sched.out = null;
+}
+/* Coming back to the app: if the phone paused the sound engine while locked, the schedule is late — rebuild it,
+   and say once how to stop that from happening. */
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState !== "visible" || !sched.kind || !actx) return;
+  const drift = actx.currentTime - (sched.t0 + (Date.now() - sched.wall) / 1000);
+  if(Math.abs(drift) > 0.5 && sched.resync){
+    const r = sched.resync; setTimeout(r, 50);
+    if(drift < -1.5 && !sched.warned){ sched.warned = true;
+      toast(isDE() ? "Dein Handy hat den Ton im Sperrbildschirm pausiert. Tipp: Chrome-Akku auf „Nicht eingeschränkt“ – oder Timer-Töne auf „Garantiert“." : "Your phone paused the timer sound while locked. Tip: set Chrome's battery use to Unrestricted — or Timer sounds to \"Guaranteed\"."); }
+  }
+});
+/* ---- one API for the timers, whichever mode is chosen ---- */
+function soundPlay(kind, plan, meta){
+  const mode = lockMode();
+  if(mode === "track"){ schedStop(); return trkPlay(kind, plan, meta); }
+  trkStop();
+  if(mode === "mix" && voice.sounds) return schedPlay(kind, plan);
+  schedStop(); return false;
+}
+function soundStop(kind){ trkStop(kind); schedStop(kind); }
+const soundCovers = kind => trkCovers(kind) || (sched.kind === kind && !sched.blocked && !!actx && actx.state === "running");
+const soundNeedsTap = kind => lockSoundOn() && !soundCovers(kind) && ((lockMode() === "track" && (trk.blocked || trk.kind !== kind)) || (lockMode() === "mix" && (sched.blocked || sched.kind !== kind)));
+function soundStopLater(ms){ const u = trk.url, k = sched.kind, n = sched.nodes; setTimeout(() => { if(u && trk.url === u) trkStop(); if(k && sched.kind === k && sched.nodes === n) schedStop(); }, ms); }
 function trkStop(kind){
   if(kind && trk.kind !== kind) return;
   if(trk.el){ try{ trk.el.pause(); trk.el.removeAttribute("src"); trk.el.load(); }catch{} }
@@ -1141,11 +1200,19 @@ document.addEventListener("visibilitychange", () => { if(document.visibilityStat
 const tSay = key => { if(voice.mode !== "off") speak(TIMER_SAY[voice.lang][key] || TIMER_SAY.en[key], {force:true}); };
 /* "Beep when the screen is locked" switch — shared by the interval timer and the rest timer. */
 function lockSoundRow(){
-  const de = isDE(), box = h("input", {type:"checkbox", checked:lockSoundOn(), id:"lock-snd"});
-  box.addEventListener("change", () => { localStorage.setItem(LOCK_SOUND, box.checked ? "1" : "0"); if(!box.checked){ trkStop(); } });
-  return h("label", {class:"stay lock-snd", for:"lock-snd"}, box, h("span", null,
-    h("b", null, de ? "Auch bei gesperrtem Bildschirm piepen" : "Beep when the screen is locked"),
-    h("small", null, de ? "Läuft wie ein Musiktitel weiter – auch in anderen Apps. Musik-Apps pausieren dabei oft." : "Keeps sounding like a music track, even in other apps. Music apps usually pause while it runs.")));
+  const de = isDE();
+  const opts = de ? [["mix", "Über meiner Musik (empfohlen)"], ["track", "Garantiert – pausiert Musik"], ["off", "Nur bei offener App"]]
+                  : [["mix", "Over my music (recommended)"], ["track", "Guaranteed — pauses music"], ["off", "Only while the app is open"]];
+  const sel = h("select", {id:"lock-snd", "aria-label":de ? "Timer-Töne bei gesperrtem Bildschirm" : "Timer sounds when the screen is locked"}, opts.map(([v, t]) => h("option", {value:v}, t)));
+  sel.value = lockMode();
+  const note = h("small", {class:"tiny muted"});
+  const paintNote = () => { note.textContent = sel.value === "mix"
+      ? (de ? "Die Pieptöne laufen über deiner Musik – Spotify & Co. spielen weiter, auch bei gesperrtem Bildschirm." : "Beeps play over your music — Spotify & co. keep playing, also with the screen locked.")
+      : sel.value === "track" ? (de ? "Läuft wie ein Musiktitel und klappt immer im Sperrbildschirm, aber Musik-Apps pausieren dabei." : "Plays like a music track and always works when locked, but music apps pause while it runs.")
+      : (de ? "Pieptöne nur, solange die App auf dem Bildschirm ist." : "Beeps only while the app is on screen."); };
+  sel.addEventListener("change", () => { localStorage.setItem(LOCK_SOUND, sel.value === "off" ? "0" : sel.value); soundStop(); paintNote(); });
+  paintNote();
+  return h("div", {class:"lock-snd"}, h("div", {class:"setting"}, h("span", null, de ? "Timer-Töne bei Sperre" : "Timer sounds when locked"), sel), note);
 }
 function openTimer(exIndex){
   if(!state) return;
@@ -1157,11 +1224,11 @@ function openTimer(exIndex){
   const de = isDE(), W = PHASE_WORD[voice.lang] || PHASE_WORD.en;
   const close = async () => {
     if(tm && tm.running && !(await ask(de ? "Timer stoppen?" : "Stop the timer?", de ? "Erledigte Runden bleiben gespeichert." : "Rounds you've finished stay logged.", de ? "Stoppen" : "Stop"))) return;
-    clearInterval(tmTick); tmTick = null; keepAwake(false); trkStop("interval"); if(state){ delete state.timer; persist(); } ov.remove(); if(view === "workout") paintExercise();
+    clearInterval(tmTick); tmTick = null; keepAwake(false); soundStop("interval"); if(state){ delete state.timer; persist(); } ov.remove(); if(view === "workout") paintExercise();
   };
   /* ---- the audio track: every beep from `fromIndex` (already `elapsed` s in) until the end, or the next open-ended phase ---- */
   const startKind = ph => ph.type === "hard" ? (ph.round === cfg.rounds - 1 && cfg.rounds > 2 ? "last" : "go") : ph.type === "easy" || ph.type === "rest" ? "easy" : ph.type === "right" ? "switch" : "start";
-  const timeline = (fromIndex, elapsed, lead) => {
+  const timeline = (fromIndex, elapsed, lead, maxT = TRK_MAX) => {
     const ev = []; let t = lead || 0;
     for(let i = fromIndex; i < tm.phases.length; i++){
       const ph = tm.phases[i], off = i === fromIndex ? elapsed : 0;
@@ -1171,7 +1238,7 @@ function openTimer(exIndex){
       if(ph.sec >= 20 && len > 10.5) ev.push({t:t + len - 10, kind:"warn"});
       [3, 2, 1].forEach(n => { if(len > n + 0.2) ev.push({t:t + len - n, kind:"pip"}); });
       t += len;
-      if(t > TRK_MAX) return {ev, total:TRK_MAX, capped:true};
+      if(t > maxT) return {ev, total:maxT, capped:true};
     }
     ev.push({t, kind:"done"}); return {ev, total:t + 1.5};
   };
@@ -1181,12 +1248,14 @@ function openTimer(exIndex){
       handlers:{pause:() => { if(tm && tm.running && tm.paused == null) togglePause(); }, play:() => { if(tm && tm.running && tm.paused != null) togglePause(); }, nexttrack:() => { if(tm && tm.running) endPhase(); }}};
   };
   const soundFromNow = lead => {
-    if(!tm || !tm.running || tm.paused != null) { trkStop("interval"); return; }
+    if(!tm || !tm.running || tm.paused != null) { soundStop("interval"); return; }
+    if(tm.countIn && !lead) lead = Math.max(0.05, (tm.countIn - Date.now()) / 1000);
     const el = lead ? 0 : Math.max(0, (Date.now() - tm.phaseStart) / 1000);
-    const plan = timeline(lead ? 0 : tm.i, el, lead);
+    const plan = timeline(lead ? 0 : tm.i, el, lead, lockMode() === "track" ? TRK_MAX : 6 * 3600);
     plan.onEnded = () => { if(trk.capped && tm && tm.running){ tick(); soundFromNow(); } };
     plan.onBlocked = () => paint();
-    trkPlay("interval", plan, lead ? {title:`${exName(ex.n)} · ${W.ready}`, artist:timerSummary(cfg), handlers:metaFor() ? metaFor().handlers : null} : metaFor());
+    plan.resync = () => { if(tm && tm.running && tm.paused == null){ tick(); if(tm.running) soundFromNow(); } };
+    soundPlay("interval", plan, lead ? {title:`${exName(ex.n)} · ${W.ready}`, artist:timerSummary(cfg), handlers:metaFor() ? metaFor().handlers : null} : metaFor());
   };
   const markRound = round => {
     const set = ex.sets[round]; if(!set || set.done) return;
@@ -1196,9 +1265,9 @@ function openTimer(exIndex){
   };
   const finish = late => {
     clearInterval(tmTick); tmTick = null; keepAwake(false);
-    if(!late){ if(!trkCovers("interval")) cue.end(); tSay("done"); }
+    if(!late){ if(!soundCovers("interval")) cue.end(); tSay("done"); }
     tm.running = false; tm.finished = true; persist(); paint();
-    trkStopLater(2500);                                                      // let the finishing chime play out
+    soundStopLater(2500);                                                    // let the finishing chime play out
   };
   /* at = the exact moment the phase began (so the clock never drifts, even if the phone slept);
      late = it began a while ago while the app was asleep, so don't announce it now */
@@ -1206,7 +1275,7 @@ function openTimer(exIndex){
     tm.i = i; tm.phaseStart = at; tm.flags = {}; tm.paused = null;
     const ph = tm.phases[i]; if(!ph){ finish(late); return; }
     if(!late){
-      if(!trkCovers("interval")) cue.start();
+      if(!soundCovers("interval")) cue.start();
       if(navigator.vibrate) navigator.vibrate(ph.type === "hard" ? [200, 80, 200] : 200);
       const lastRound = ph.round === cfg.rounds - 1 && cfg.rounds > 2 && (ph.type === "hard" || ph.type === "hold" || ph.type === "left");
       tSay(lastRound ? "last" : ph.type);
@@ -1222,7 +1291,7 @@ function openTimer(exIndex){
   };
   function togglePause(){
     if(tm.paused != null){ tm.phaseStart = Date.now() - tm.paused * 1000; tm.paused = null; keepAwake(true); persist(); soundFromNow(); }
-    else { tm.paused = (Date.now() - tm.phaseStart) / 1000; keepAwake(false); trkStop("interval"); persist(); }
+    else { tm.paused = (Date.now() - tm.phaseStart) / 1000; keepAwake(false); soundStop("interval"); persist(); }
     paint();
   }
   function tick(){
@@ -1237,7 +1306,7 @@ function openTimer(exIndex){
     const ph = tm.phases[tm.i]; if(!tm.running || !ph) return;
     const el = (Date.now() - tm.phaseStart) / 1000;
     if(ph.sec){
-      const left = ph.sec - el, quiet = trkCovers("interval");
+      const left = ph.sec - el, quiet = soundCovers("interval");
       if(left <= 10.5 && left > 3.5 && ph.sec >= 20 && !tm.flags.w){ tm.flags.w = 1; if(!quiet) cue.warn(); if(voice.mode !== "off") speak(TIMER_SAY[voice.lang].warn(ph.type), {force:true}); }
       [3, 2, 1].forEach(n => { if(left <= n + 0.05 && left > n - 0.95 && !tm.flags["b" + n]){ tm.flags["b" + n] = 1; if(!quiet) beep(880, .08, .06); } });
     }
@@ -1303,7 +1372,7 @@ function openTimer(exIndex){
           !tm.countIn && !ph.sec ? h("button", {class:"btn primary", onclick:() => endPhase()}, ph.dist ? (de ? `Fertig – ${ph.dist} m` : `Done — ${ph.dist} m`) : (de ? "Runde fertig" : "Round done")) : null,
           h("button", {class:"btn", onclick:togglePause}, tm.paused != null ? (de ? "▶ Weiter" : "▶ Resume") : (de ? "❚❚ Pause" : "❚❚ Pause")),
           h("button", {class:"btn", onclick:() => endPhase()}, de ? "Überspringen ›" : "Skip ›")),
-        lockSoundOn() && tm.paused == null && !tm.countIn && ph.sec && !trkCovers("interval") && (trk.blocked || trk.kind !== "interval")
+        tm.paused == null && !tm.countIn && ph.sec && soundNeedsTap("interval")
           ? h("button", {class:"tm-sound", onclick:() => { unlockAudio(); soundFromNow(); setTimeout(paint, 400); }}, de ? "🔈 Tippen, damit der Timer auch bei gesperrtem Bildschirm piept" : "🔈 Tap so the timer also beeps when the screen is locked")
           : null));
     paintClock();
@@ -1313,7 +1382,7 @@ function openTimer(exIndex){
     keepAwake(true); if(tm.paused == null && tm.countIn){ delete tm.countIn; tm.phaseStart = Date.now(); }
     clearInterval(tmTick); tmTick = setInterval(tick, 200);
     tick();
-    if(tm.running && tm.paused == null && trk.kind !== "interval") soundFromNow();   // try to restore the track (a tap may be needed)
+    if(tm.running && tm.paused == null && !soundCovers("interval")) soundFromNow();   // try to restore the sound (a tap may be needed)
   }
   paint();
 }
@@ -1322,14 +1391,14 @@ function openTimer(exIndex){
 let restTick = null, restFlags = {};
 /* rest track: 10-second warning, 3-2-1, "go" chime at the end */
 function restSound(){
-  if(!state?.rest){ trkStop("rest"); return; }
-  const left = (state.rest.end - Date.now()) / 1000; if(left <= 0.5){ trkStop("rest"); return; }
+  if(!state?.rest){ soundStop("rest"); return; }
+  const left = (state.rest.end - Date.now()) / 1000; if(left <= 0.5){ soundStop("rest"); return; }
   const ev = [];
   if(state.rest.total >= 20 && left > 10.5) ev.push({t:left - 10, kind:"warn"});
   [3, 2, 1].forEach(n => { if(left > n + 0.2) ev.push({t:left - n, kind:"pip"}); });
   ev.push({t:left, kind:"done"});
   const ex = curEx();
-  trkPlay("rest", {ev, total:left + 1.5}, {title:`${T("restLbl")} · ${mmt(state.rest.total)}`, artist:ex ? `${isDE() ? "Danach" : "Next"}: ${exName(ex.n)}` : "Zahi Fit",
+  soundPlay("rest", {ev, total:left + 1.5, resync:restSound}, {title:`${T("restLbl")} · ${mmt(state.rest.total)}`, artist:ex ? `${isDE() ? "Danach" : "Next"}: ${exName(ex.n)}` : "Zahi Fit",
     handlers:{nexttrack:() => stopRest(), pause:() => stopRest()}});
 }
 function startRest(sec){
@@ -1341,7 +1410,7 @@ function startRest(sec){
   paintRest();
 }
 function adjustRest(d){ if(!state?.rest) return; state.rest.end += d*1000; state.rest.total = Math.max(1, state.rest.total + d); if(state.rest.end - Date.now() > 10000) restFlags.warn = false; persist(); restSound(); paintRest(); }
-function stopRest(){ if(state){ delete state.rest; persist(); } clearInterval(restTick); restTick = null; trkStop("rest"); document.querySelector(".rest")?.remove(); document.body.classList.remove("resting"); }
+function stopRest(){ if(state){ delete state.rest; persist(); } clearInterval(restTick); restTick = null; soundStop("rest"); document.querySelector(".rest")?.remove(); document.body.classList.remove("resting"); }
 function paintRest(){
   if(!state?.rest || document.body.dataset.view !== "workout"){ document.querySelector(".rest")?.remove(); document.body.classList.remove("resting"); clearInterval(restTick); restTick = null; return; }
   document.body.classList.add("resting");
@@ -1363,12 +1432,12 @@ function paintRest(){
     el.querySelector(".time").textContent = mmss(Math.ceil(left));
     el.querySelector(".track i").style.transform = `scaleX(${Math.max(0, Math.min(1, left/state.rest.total))})`;
     el.classList.toggle("ending", left <= 10);
-    const quiet = trkCovers("rest");
+    const quiet = soundCovers("rest");
     if(left <= 10.5 && left > 1 && !restFlags.warn){ restFlags.warn = true; if(!quiet) cue.warn(); if(voice.mode !== "off") speak(phrase().ten); }
     if(left <= 0){
       const late = left < -2.5;                                              // ended while the phone slept: the track already chimed
       if(!late){ if(!quiet) cue.end(); if(voice.mode !== "off") speak(phrase().done); }
-      if(quiet){ restTick && clearInterval(restTick); restTick = null; if(state){ delete state.rest; persist(); } document.querySelector(".rest")?.remove(); document.body.classList.remove("resting"); trkStopLater(1800); }
+      if(quiet){ restTick && clearInterval(restTick); restTick = null; if(state){ delete state.rest; persist(); } document.querySelector(".rest")?.remove(); document.body.classList.remove("resting"); soundStopLater(1800); }
       else stopRest();
     }
   };
@@ -1957,6 +2026,8 @@ const STEP_ICONS = [
 ];
 const stepIcon = title => (STEP_ICONS.find(([re]) => re.test(title)) || [null, "•"])[1];
 
+const VIDEO_MUTE = "zahiFitVideoMuteV533";
+const videoMuted = () => localStorage.getItem(VIDEO_MUTE) !== "0";
 function videoCard(ex, onChange){
   const id = videoFor(ex), box = h("section", {class:"video-card"});
   if(id){
@@ -1965,12 +2036,24 @@ function videoCard(ex, onChange){
       if(navigator.onLine === false){ toast(T("offlineVideo")); return; }
       track("video_open");
       hush();
-      frame.replaceChildren(h("iframe", {src:`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1`,
-        title:`${exName(ex.n)} — video`, allow:"autoplay; encrypted-media; picture-in-picture; fullscreen", allowfullscreen:true, referrerpolicy:"strict-origin-when-cross-origin"}));
+      playIn(videoMuted());
     }}, h("img", {src:ytThumb(id), alt:"", loading:"lazy"}), h("span", {class:"play"}, "▶"), h("span", {class:"watch"}, T("watch")));
+    /* Muted = the phone doesn't hand the speaker to the video, so your music keeps playing.
+       With sound, most phones pause the music app (and it may not resume by itself). */
+    const soundLine = h("div", {class:"video-sound"});
+    const playIn = muted => {
+      frame.replaceChildren(h("iframe", {src:`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1${muted ? "&mute=1" : ""}`,
+        title:`${exName(ex.n)} — video`, allow:"autoplay; encrypted-media; picture-in-picture; fullscreen", allowfullscreen:true, referrerpolicy:"strict-origin-when-cross-origin"}));
+      const de = isDE();
+      soundLine.replaceChildren(muted
+        ? h("span", null, de ? "🔇 Stumm – deine Musik läuft weiter. " : "🔇 Muted — your music keeps playing. ",
+            h("button", {class:"linkish", onclick:() => { localStorage.setItem(VIDEO_MUTE, "0"); playIn(false); }}, de ? "🔊 Mit Ton (pausiert Musik)" : "🔊 Play with sound (pauses music)"))
+        : h("span", null, de ? "🔊 Mit Ton – Musik-Apps pausieren dabei. " : "🔊 With sound — music apps pause. ",
+            h("button", {class:"linkish", onclick:() => { localStorage.setItem(VIDEO_MUTE, "1"); playIn(true); }}, de ? "🔇 Stumm, Musik behalten" : "🔇 Mute & keep my music")));
+    };
     poster.querySelector("img").addEventListener("error", e => e.target.remove());
     frame.append(poster);
-    box.append(frame, h("div", {class:"video-links"},
+    box.append(frame, soundLine, h("div", {class:"video-links"},
       h("a", {href:ytWatch(id), target:"_blank", rel:"noopener", class:"linkish"}, "↗ " + T("openYT")),
       h("button", {class:"linkish", onclick:() => pickVideo(ex, onChange)}, T("changeVideo"))));
   }else{

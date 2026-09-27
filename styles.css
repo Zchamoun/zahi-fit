@@ -648,3 +648,8 @@ body.locked .tabs{display:none}
 /* v5.3.2: lock-screen sound */
 .lock-snd{margin-top:14px}
 .tm-sound{display:block;width:100%;margin-top:14px;padding:12px;border:0;border-radius:14px;background:#ffffff2e;color:#fff;font-weight:800;font-size:15px}
+
+/* v5.3.3: sound modes + muted videos */
+.lock-snd .tiny{display:block;margin-top:4px}
+.video-sound{font-size:13px;color:var(--muted);margin-top:8px}
+.video-sound .linkish{font-size:13px;padding:0;margin-left:2px}
