@@ -644,3 +644,7 @@ body.locked .tabs{display:none}
 .panel h4{margin:12px 0 2px;font-size:13px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.04em}
 .photo-choice{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
 .photo-choice .la{min-height:110px}
+
+/* v5.3.2: lock-screen sound */
+.lock-snd{margin-top:14px}
+.tm-sound{display:block;width:100%;margin-top:14px;padding:12px;border:0;border-radius:14px;background:#ffffff2e;color:#fff;font-weight:800;font-size:15px}

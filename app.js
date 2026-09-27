@@ -3,7 +3,7 @@
    Replaces app.js + v24/v25/v251/v27/v271 overlays. Uses the same localStorage keys,
    so workout history, plan, profile and an in-progress workout carry over. */
 (() => {
-const VERSION = "5.3.1";
+const VERSION = "5.3.2";
 const PT_ENDPOINT = "https://zahi-fit-pt.chamounzahi.workers.dev";
 const VOICE_ENDPOINT = "https://zahi-fit-voice.chamounzahi.workers.dev";
 const K = {
@@ -616,6 +616,82 @@ function beep(f, d, v){
   o.type = "sine"; o.frequency.value = f; g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.001, t+d);
   o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t+d);
 }
+/* ---------- lock-screen sound ----------
+   Phones pause a web app's sound engine when the screen locks or you switch apps, so Web Audio beeps go silent.
+   A normal media track keeps playing (like music). So each countdown is also rendered as one audio track —
+   silence with the beeps at the exact moments — and played through an <audio> element with lock-screen controls. */
+const LOCK_SOUND = "zahiFitLockSoundV532";
+const lockSoundOn = () => localStorage.getItem(LOCK_SOUND) !== "0";
+const TRK_RATE = 8000, TRK_MAX = 3600;                     // 8 kHz mono 8-bit: ~8 KB per second, max 60 min per track
+const trk = {el:null, url:null, kind:null, t0:0, playing:false, blocked:false, capped:false, onEnded:null};
+/* Adds a sine beep straight into the 8-bit WAV bytes (after the 44-byte header), so no big float buffer is needed. */
+function trkTone(buf, t, f, d, v){
+  const s0 = 44 + Math.round(t * TRK_RATE), n = Math.round(d * TRK_RATE), w = 2 * Math.PI * f / TRK_RATE;
+  for(let i = 0; i < n; i++){
+    const k = s0 + i; if(k < 44 || k >= buf.length) continue;
+    const env = Math.min(1, i / (0.006 * TRK_RATE)) * Math.exp(-3.2 * i / n);
+    buf[k] = Math.max(0, Math.min(255, buf[k] + Math.round(127 * v * env * Math.sin(w * i))));
+  }
+}
+const TRK_PAT = {
+  go:     (b, t) => { trkTone(b, t, 520, .12, .55); trkTone(b, t + .14, 660, .12, .6); trkTone(b, t + .28, 880, .22, .65); },
+  last:   (b, t) => { TRK_PAT.go(b, t); TRK_PAT.go(b, t + .6); },
+  easy:   (b, t) => { trkTone(b, t, 880, .14, .55); trkTone(b, t + .17, 660, .26, .55); },
+  start:  (b, t) => { trkTone(b, t, 520, .12, .55); trkTone(b, t + .14, 660, .2, .6); },
+  switch: (b, t) => { trkTone(b, t, 740, .12, .6); trkTone(b, t + .2, 740, .12, .6); },
+  warn:   (b, t) => { trkTone(b, t, 780, .11, .5); trkTone(b, t + .18, 780, .11, .5); },
+  pip:    (b, t) => trkTone(b, t, 880, .09, .5),
+  done:   (b, t) => { trkTone(b, t, 620, .13, .6); trkTone(b, t + .15, 820, .14, .6); trkTone(b, t + .32, 1040, .35, .65); }
+};
+function trkRender(events, total){
+  const n = Math.ceil(Math.min(total, TRK_MAX) * TRK_RATE) + TRK_RATE / 2;
+  const out = new Uint8Array(44 + n), dv = new DataView(out.buffer), str = (o, x) => { for(let i = 0; i < x.length; i++) out[o + i] = x.charCodeAt(i); };
+  str(0, "RIFF"); dv.setUint32(4, 36 + n, true); str(8, "WAVEfmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, TRK_RATE, true); dv.setUint32(28, TRK_RATE, true); dv.setUint16(32, 1, true); dv.setUint16(34, 8, true); str(36, "data"); dv.setUint32(40, n, true);
+  out.fill(128, 44);                                                          // 128 = silence in 8-bit audio
+  events.forEach(e => e.t <= TRK_MAX && TRK_PAT[e.kind] && TRK_PAT[e.kind](out, Math.max(0, e.t)));
+  return new Blob([out], {type:"audio/wav"});
+}
+/* Stop this track a moment later (so a final chime plays out) — unless another track has started since. */
+function trkStopLater(ms){ const u = trk.url; setTimeout(() => { if(u && trk.url === u) trkStop(); }, ms); }
+/* Is the track currently doing the beeping? Then the in-app beeps stay quiet so nothing sounds twice. */
+const trkCovers = kind => trk.kind === kind && trk.playing && !trk.blocked;
+function trkMeta(title, artist, handlers){
+  if(!("mediaSession" in navigator)) return;
+  try{
+    navigator.mediaSession.metadata = new MediaMetadata({title, artist, album:"Zahi Fit", artwork:[{src:"./icon-512.png", sizes:"512x512", type:"image/png"}]});
+    if(handlers) ["play","pause","nexttrack","previoustrack","seekto","seekbackward","seekforward"].forEach(a => { try{ navigator.mediaSession.setActionHandler(a, handlers[a] || null); }catch{} });
+  }catch{}
+}
+function trkPlay(kind, plan, meta){
+  trkStop();
+  if(!lockSoundOn() || !plan || !plan.ev.length) return false;
+  const a = trk.el || (trk.el = new Audio());
+  if(!a.dataset.wired){
+    a.dataset.wired = "1"; a.preload = "auto";
+    a.addEventListener("playing", () => {
+      trk.playing = true; trk.blocked = false;
+      const want = (Date.now() - trk.t0) / 1000;                      // start late? jump to where it should be
+      if(want > 0 && Math.abs(a.currentTime - want) > 0.3 && want < a.duration) a.currentTime = want;
+    });
+    a.addEventListener("pause", () => { trk.playing = false; });
+    a.addEventListener("ended", () => { trk.playing = false; const f = trk.onEnded; if(f) f(); });
+    a.addEventListener("error", () => { trk.playing = false; trk.blocked = true; });
+  }
+  trk.url = URL.createObjectURL(trkRender(plan.ev, plan.total));
+  trk.kind = kind; trk.t0 = Date.now(); trk.capped = !!plan.capped; trk.blocked = false; trk.onEnded = plan.onEnded || null;
+  a.src = trk.url;
+  const p = a.play(); if(p && p.catch) p.catch(() => { trk.blocked = true; trk.playing = false; if(plan.onBlocked) plan.onBlocked(); });
+  if(meta) trkMeta(meta.title, meta.artist, meta.handlers);
+  return true;
+}
+function trkStop(kind){
+  if(kind && trk.kind !== kind) return;
+  if(trk.el){ try{ trk.el.pause(); trk.el.removeAttribute("src"); trk.el.load(); }catch{} }
+  if(trk.url) URL.revokeObjectURL(trk.url);
+  trk.url = null; trk.kind = null; trk.playing = false; trk.onEnded = null;
+  if("mediaSession" in navigator){ try{ navigator.mediaSession.metadata = null; }catch{} }
+}
 const cue = {
   start(){ beep(520,.11,.06); setTimeout(() => beep(660,.11,.06),130); },
   warn(){ beep(780,.1,.055); setTimeout(() => beep(780,.1,.055),170); },
@@ -1063,6 +1139,14 @@ async function keepAwake(on){
 }
 document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible" && state && state.timer && state.timer.running) keepAwake(true); });
 const tSay = key => { if(voice.mode !== "off") speak(TIMER_SAY[voice.lang][key] || TIMER_SAY.en[key], {force:true}); };
+/* "Beep when the screen is locked" switch — shared by the interval timer and the rest timer. */
+function lockSoundRow(){
+  const de = isDE(), box = h("input", {type:"checkbox", checked:lockSoundOn(), id:"lock-snd"});
+  box.addEventListener("change", () => { localStorage.setItem(LOCK_SOUND, box.checked ? "1" : "0"); if(!box.checked){ trkStop(); } });
+  return h("label", {class:"stay lock-snd", for:"lock-snd"}, box, h("span", null,
+    h("b", null, de ? "Auch bei gesperrtem Bildschirm piepen" : "Beep when the screen is locked"),
+    h("small", null, de ? "Läuft wie ein Musiktitel weiter – auch in anderen Apps. Musik-Apps pausieren dabei oft." : "Keeps sounding like a music track, even in other apps. Music apps usually pause while it runs.")));
+}
 function openTimer(exIndex){
   if(!state) return;
   const ex = state.exercises[exIndex], plan0 = timerPlan(ex); if(!plan0) return;
@@ -1073,7 +1157,36 @@ function openTimer(exIndex){
   const de = isDE(), W = PHASE_WORD[voice.lang] || PHASE_WORD.en;
   const close = async () => {
     if(tm && tm.running && !(await ask(de ? "Timer stoppen?" : "Stop the timer?", de ? "Erledigte Runden bleiben gespeichert." : "Rounds you've finished stay logged.", de ? "Stoppen" : "Stop"))) return;
-    clearInterval(tmTick); tmTick = null; keepAwake(false); if(state){ delete state.timer; persist(); } ov.remove(); if(view === "workout") paintExercise();
+    clearInterval(tmTick); tmTick = null; keepAwake(false); trkStop("interval"); if(state){ delete state.timer; persist(); } ov.remove(); if(view === "workout") paintExercise();
+  };
+  /* ---- the audio track: every beep from `fromIndex` (already `elapsed` s in) until the end, or the next open-ended phase ---- */
+  const startKind = ph => ph.type === "hard" ? (ph.round === cfg.rounds - 1 && cfg.rounds > 2 ? "last" : "go") : ph.type === "easy" || ph.type === "rest" ? "easy" : ph.type === "right" ? "switch" : "start";
+  const timeline = (fromIndex, elapsed, lead) => {
+    const ev = []; let t = lead || 0;
+    for(let i = fromIndex; i < tm.phases.length; i++){
+      const ph = tm.phases[i], off = i === fromIndex ? elapsed : 0;
+      if(i > fromIndex || lead) ev.push({t, kind:startKind(ph)});
+      if(!ph.sec) return {ev, total:t + 1};                                   // "Done — 500 m": nothing more to schedule
+      const len = Math.max(0, ph.sec - off);
+      if(ph.sec >= 20 && len > 10.5) ev.push({t:t + len - 10, kind:"warn"});
+      [3, 2, 1].forEach(n => { if(len > n + 0.2) ev.push({t:t + len - n, kind:"pip"}); });
+      t += len;
+      if(t > TRK_MAX) return {ev, total:TRK_MAX, capped:true};
+    }
+    ev.push({t, kind:"done"}); return {ev, total:t + 1.5};
+  };
+  const metaFor = () => {
+    const ph = tm.phases[tm.i]; if(!ph) return null;
+    return {title:`${exName(ex.n)} · ${W[ph.type]}${ph.sec ? " " + mmt(ph.sec) : ""}`, artist:`${de ? "Runde" : "Round"} ${ph.round + 1} / ${cfg.rounds}`,
+      handlers:{pause:() => { if(tm && tm.running && tm.paused == null) togglePause(); }, play:() => { if(tm && tm.running && tm.paused != null) togglePause(); }, nexttrack:() => { if(tm && tm.running) endPhase(); }}};
+  };
+  const soundFromNow = lead => {
+    if(!tm || !tm.running || tm.paused != null) { trkStop("interval"); return; }
+    const el = lead ? 0 : Math.max(0, (Date.now() - tm.phaseStart) / 1000);
+    const plan = timeline(lead ? 0 : tm.i, el, lead);
+    plan.onEnded = () => { if(trk.capped && tm && tm.running){ tick(); soundFromNow(); } };
+    plan.onBlocked = () => paint();
+    trkPlay("interval", plan, lead ? {title:`${exName(ex.n)} · ${W.ready}`, artist:timerSummary(cfg), handlers:metaFor() ? metaFor().handlers : null} : metaFor());
   };
   const markRound = round => {
     const set = ex.sets[round]; if(!set || set.done) return;
@@ -1081,36 +1194,55 @@ function openTimer(exIndex){
     if(!set.r) set.r = cfg.kind === "intervals" ? (cfg.work ? mmt(cfg.work) : `${cfg.dist} m`) : cfg.kind === "stopwatch" ? mmt((Date.now() - tm.phaseStart) / 1000) : mmt(cfg.work);
     persist();
   };
-  const finish = () => {
-    clearInterval(tmTick); tmTick = null; keepAwake(false); cue.end(); tSay("done");
+  const finish = late => {
+    clearInterval(tmTick); tmTick = null; keepAwake(false);
+    if(!late){ if(!trkCovers("interval")) cue.end(); tSay("done"); }
     tm.running = false; tm.finished = true; persist(); paint();
+    trkStopLater(2500);                                                      // let the finishing chime play out
   };
-  const startPhase = i => {
-    tm.i = i; tm.phaseStart = Date.now(); tm.flags = {}; tm.paused = null;
-    if(!tm.phases[i]){ finish(); return; }
-    const ph = tm.phases[i]; if(!ph){ finish(); return; }
-    cue.start(); if(navigator.vibrate) navigator.vibrate(ph.type === "hard" ? [200, 80, 200] : 200);
-    const lastRound = ph.round === cfg.rounds - 1 && cfg.rounds > 2 && (ph.type === "hard" || ph.type === "hold" || ph.type === "left");
-    tSay(lastRound ? "last" : ph.type);
+  /* at = the exact moment the phase began (so the clock never drifts, even if the phone slept);
+     late = it began a while ago while the app was asleep, so don't announce it now */
+  const startPhase = (i, at = Date.now(), late = false) => {
+    tm.i = i; tm.phaseStart = at; tm.flags = {}; tm.paused = null;
+    const ph = tm.phases[i]; if(!ph){ finish(late); return; }
+    if(!late){
+      if(!trkCovers("interval")) cue.start();
+      if(navigator.vibrate) navigator.vibrate(ph.type === "hard" ? [200, 80, 200] : 200);
+      const lastRound = ph.round === cfg.rounds - 1 && cfg.rounds > 2 && (ph.type === "hard" || ph.type === "hold" || ph.type === "left");
+      tSay(lastRound ? "last" : ph.type);
+    }
+    if(trk.kind === "interval"){ const m = metaFor(); if(m) trkMeta(m.title, m.artist); }
     persist(); paint();
   };
-  const endPhase = () => {
+  const endPhase = (auto, at, late) => {
     const ph = tm.phases[tm.i];
     if(!tm.phases[tm.i + 1] || tm.phases[tm.i + 1].round !== ph.round) markRound(ph.round);   // a round is done when its last phase ends
-    startPhase(tm.i + 1);
+    startPhase(tm.i + 1, auto ? at : Date.now(), !!late);
+    if(!auto && tm.running) soundFromNow();                                  // Skip / Done: rebuild the track from here
   };
-  const tick = () => {
+  function togglePause(){
+    if(tm.paused != null){ tm.phaseStart = Date.now() - tm.paused * 1000; tm.paused = null; keepAwake(true); persist(); soundFromNow(); }
+    else { tm.paused = (Date.now() - tm.phaseStart) / 1000; keepAwake(false); trkStop("interval"); persist(); }
+    paint();
+  }
+  function tick(){
     if(!tm || !tm.running || tm.paused != null || tm.countIn) return;
-    const ph = tm.phases[tm.i]; if(!ph) return;
+    // catch up on every phase that ended while the phone was asleep (exact boundaries, no drift)
+    let guard = 0;
+    while(tm.running && tm.phases[tm.i] && tm.phases[tm.i].sec && guard++ < 500){
+      const ph = tm.phases[tm.i], end = tm.phaseStart + ph.sec * 1000;
+      if(Date.now() < end) break;
+      endPhase(true, end, Date.now() - end > 2500);
+    }
+    const ph = tm.phases[tm.i]; if(!tm.running || !ph) return;
     const el = (Date.now() - tm.phaseStart) / 1000;
     if(ph.sec){
-      const left = ph.sec - el;
-      if(left <= 10.5 && left > 3.5 && ph.sec >= 20 && !tm.flags.w){ tm.flags.w = 1; cue.warn(); if(voice.mode !== "off") speak(TIMER_SAY[voice.lang].warn(ph.type), {force:true}); }
-      [3, 2, 1].forEach(n => { if(left <= n + 0.05 && left > n - 0.95 && !tm.flags["b" + n]){ tm.flags["b" + n] = 1; beep(880, .08, .06); } });
-      if(left <= 0){ endPhase(); return; }
+      const left = ph.sec - el, quiet = trkCovers("interval");
+      if(left <= 10.5 && left > 3.5 && ph.sec >= 20 && !tm.flags.w){ tm.flags.w = 1; if(!quiet) cue.warn(); if(voice.mode !== "off") speak(TIMER_SAY[voice.lang].warn(ph.type), {force:true}); }
+      [3, 2, 1].forEach(n => { if(left <= n + 0.05 && left > n - 0.95 && !tm.flags["b" + n]){ tm.flags["b" + n] = 1; if(!quiet) beep(880, .08, .06); } });
     }
     paintClock();
-  };
+  }
   const start = () => {
     unlockAudio();
     tm = state.timer = {ex:exIndex, cfg, phases:buildPhases(cfg), i:0, phaseStart:Date.now(), running:true, flags:{}}; track("timer_start", null, cfg.kind);
@@ -1118,7 +1250,8 @@ function openTimer(exIndex){
     if(firstOpen > 0){ tm.phases = tm.phases.filter(p => p.round >= firstOpen); }       // continue from the next round not yet done
     keepAwake(true); tSay("ready");
     tm.countIn = Date.now() + 3000; persist(); paint();
-    const go1 = setInterval(() => { if(Date.now() >= tm.countIn){ clearInterval(go1); delete tm.countIn; startPhase(0); } else paintClock(); }, 200);
+    soundFromNow(3);                                                          // the whole session as one track, from the 3-2-1
+    const go1 = setInterval(() => { if(!tm.countIn){ clearInterval(go1); return; } if(Date.now() >= tm.countIn){ clearInterval(go1); const at = tm.countIn; delete tm.countIn; startPhase(0, at, Date.now() - at > 2500); } else paintClock(); }, 200);
     clearInterval(tmTick); tmTick = setInterval(tick, 200);
   };
   const clock = h("div", {class:"tm-clock"}), bar = h("div", {class:"tm-bar"}, h("i")), sub = h("div", {class:"tm-sub"});
@@ -1147,6 +1280,7 @@ function openTimer(exIndex){
         cfg.kind === "steady" ? adj(de ? "Dauer" : "Time", "work", 60, 60) : null,
         cfg.kind === "hold" ? adj(de ? "Halten" : "Hold", "work", 5, 5) : null,
         cfg.kind !== "steady" ? adj(de ? "Runden" : "Rounds", "rounds", 1, 1) : null,
+        lockSoundRow(),
         h("button", {class:"btn primary block tm-start", onclick:start}, de ? "▶ Start" : "▶ Start")));
       return;
     }
@@ -1167,29 +1301,47 @@ function openTimer(exIndex){
         h("div", {class:"tm-next"}, next ? `${de ? "Danach" : "Next"}: ${W[next.type]}${next.sec ? " " + mmt(next.sec) : ""}` : (de ? "Danach: fertig" : "Next: finish")),
         h("div", {class:"tm-controls"},
           !tm.countIn && !ph.sec ? h("button", {class:"btn primary", onclick:() => endPhase()}, ph.dist ? (de ? `Fertig – ${ph.dist} m` : `Done — ${ph.dist} m`) : (de ? "Runde fertig" : "Round done")) : null,
-          h("button", {class:"btn", onclick:() => { if(tm.paused != null){ tm.phaseStart = Date.now() - tm.paused * 1000; tm.paused = null; keepAwake(true); } else { tm.paused = (Date.now() - tm.phaseStart) / 1000; keepAwake(false); } persist(); paint(); }}, tm.paused != null ? (de ? "▶ Weiter" : "▶ Resume") : (de ? "❚❚ Pause" : "❚❚ Pause")),
-          h("button", {class:"btn", onclick:() => endPhase()}, de ? "Überspringen ›" : "Skip ›"))));
+          h("button", {class:"btn", onclick:togglePause}, tm.paused != null ? (de ? "▶ Weiter" : "▶ Resume") : (de ? "❚❚ Pause" : "❚❚ Pause")),
+          h("button", {class:"btn", onclick:() => endPhase()}, de ? "Überspringen ›" : "Skip ›")),
+        lockSoundOn() && tm.paused == null && !tm.countIn && ph.sec && !trkCovers("interval") && (trk.blocked || trk.kind !== "interval")
+          ? h("button", {class:"tm-sound", onclick:() => { unlockAudio(); soundFromNow(); setTimeout(paint, 400); }}, de ? "🔈 Tippen, damit der Timer auch bei gesperrtem Bildschirm piept" : "🔈 Tap so the timer also beeps when the screen is locked")
+          : null));
     paintClock();
   }
   document.body.append(ov);
   if(tm && tm.running){                         // resume after a reload or reopening
     keepAwake(true); if(tm.paused == null && tm.countIn){ delete tm.countIn; tm.phaseStart = Date.now(); }
     clearInterval(tmTick); tmTick = setInterval(tick, 200);
+    tick();
+    if(tm.running && tm.paused == null && trk.kind !== "interval") soundFromNow();   // try to restore the track (a tap may be needed)
   }
   paint();
 }
 
 /* ---------- rest timer: timestamp based, survives screen-off and reloads ---------- */
 let restTick = null, restFlags = {};
+/* rest track: 10-second warning, 3-2-1, "go" chime at the end */
+function restSound(){
+  if(!state?.rest){ trkStop("rest"); return; }
+  const left = (state.rest.end - Date.now()) / 1000; if(left <= 0.5){ trkStop("rest"); return; }
+  const ev = [];
+  if(state.rest.total >= 20 && left > 10.5) ev.push({t:left - 10, kind:"warn"});
+  [3, 2, 1].forEach(n => { if(left > n + 0.2) ev.push({t:left - n, kind:"pip"}); });
+  ev.push({t:left, kind:"done"});
+  const ex = curEx();
+  trkPlay("rest", {ev, total:left + 1.5}, {title:`${T("restLbl")} · ${mmt(state.rest.total)}`, artist:ex ? `${isDE() ? "Danach" : "Next"}: ${exName(ex.n)}` : "Zahi Fit",
+    handlers:{nexttrack:() => stopRest(), pause:() => stopRest()}});
+}
 function startRest(sec){
   if(!state || !sec) return;
   state.rest = {end:Date.now() + sec*1000, total:sec}; persist();
   restFlags = {}; cue.start();
   if(voice.mode !== "off") speak(phrase().rest(sec));
+  restSound();
   paintRest();
 }
-function adjustRest(d){ if(!state?.rest) return; state.rest.end += d*1000; state.rest.total = Math.max(1, state.rest.total + d); if(state.rest.end - Date.now() > 10000) restFlags.warn = false; persist(); paintRest(); }
-function stopRest(){ if(state){ delete state.rest; persist(); } clearInterval(restTick); restTick = null; document.querySelector(".rest")?.remove(); document.body.classList.remove("resting"); }
+function adjustRest(d){ if(!state?.rest) return; state.rest.end += d*1000; state.rest.total = Math.max(1, state.rest.total + d); if(state.rest.end - Date.now() > 10000) restFlags.warn = false; persist(); restSound(); paintRest(); }
+function stopRest(){ if(state){ delete state.rest; persist(); } clearInterval(restTick); restTick = null; trkStop("rest"); document.querySelector(".rest")?.remove(); document.body.classList.remove("resting"); }
 function paintRest(){
   if(!state?.rest || document.body.dataset.view !== "workout"){ document.querySelector(".rest")?.remove(); document.body.classList.remove("resting"); clearInterval(restTick); restTick = null; return; }
   document.body.classList.add("resting");
@@ -1211,8 +1363,14 @@ function paintRest(){
     el.querySelector(".time").textContent = mmss(Math.ceil(left));
     el.querySelector(".track i").style.transform = `scaleX(${Math.max(0, Math.min(1, left/state.rest.total))})`;
     el.classList.toggle("ending", left <= 10);
-    if(left <= 10.5 && left > 1 && !restFlags.warn){ restFlags.warn = true; cue.warn(); if(voice.mode !== "off") speak(phrase().ten); }
-    if(left <= 0){ cue.end(); if(voice.mode !== "off") speak(phrase().done); stopRest(); }
+    const quiet = trkCovers("rest");
+    if(left <= 10.5 && left > 1 && !restFlags.warn){ restFlags.warn = true; if(!quiet) cue.warn(); if(voice.mode !== "off") speak(phrase().ten); }
+    if(left <= 0){
+      const late = left < -2.5;                                              // ended while the phone slept: the track already chimed
+      if(!late){ if(!quiet) cue.end(); if(voice.mode !== "off") speak(phrase().done); }
+      if(quiet){ restTick && clearInterval(restTick); restTick = null; if(state){ delete state.rest; persist(); } document.querySelector(".rest")?.remove(); document.body.classList.remove("resting"); trkStopLater(1800); }
+      else stopRest();
+    }
   };
   tick(); clearInterval(restTick); restTick = setInterval(tick, 250);
 }
@@ -2432,6 +2590,7 @@ function renderProfile(m){
       h("div", {class:"section"}),
       h("div", {class:"setting"}, h("span", null, "During workouts"), mode),
       h("div", {class:"setting"}, h("span", null, "Rest timer sounds"), snd),
+      lockSoundRow(),
       h("div", {class:"setting"}, h("span", null, "Speed"), rate),
       phoneVoice,
       testBtn,
